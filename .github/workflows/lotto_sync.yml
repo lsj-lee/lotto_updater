@@ -1,0 +1,32 @@
+name: Lotto Data Sync
+
+on:
+  schedule:
+    # 매주 월, 화, 수 오전 10시 (UTC 시간 기준이라 한국 시간과 차이가 있습니다)
+    - cron: '0 1 * * 1-3' 
+  workflow_dispatch: # 수동으로도 실행 가능하게 설정
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v3
+
+      - name: 파이썬 설정
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: 라이브러리 설치
+        run: |
+          pip install google-genai gspread oauth2client python-dotenv
+
+      - name: 스크립트 실행
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # JSON 파일을 환경 변수로 받아서 임시 파일로 만드는 과정이 필요함
+          GOOGLE_CREDS_JSON: ${{ secrets.GOOGLE_CREDS_JSON }}
+        run: |
+          echo "$GOOGLE_CREDS_JSON" > creds.json
+          python lotto_updater.py
