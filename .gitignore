@@ -1,5 +1,17 @@
-.env
-creds.json
+# [보안] 구글 키 및 비밀 설정
+*.json
+*.env
+creds lotto.json
+
+# [용량] 가상환경 및 파이썬 캐시
 .venv/
 __pycache__/
+*.pyc
+
+# [모델] AI 학습 모델 파일 (로컬 보관)
+*.pth
+
+# [로그] 로컬 실행 기록 및 트래커
+*.txt
 *.log
+run_tracker.txt
