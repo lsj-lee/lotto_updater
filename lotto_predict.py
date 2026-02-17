@@ -14,11 +14,10 @@ import os
 # [1] 환경 설정 및 장치 확인
 # ==========================================
 # M5 칩(Apple Silicon) 가속 모드 확인
-# 사용자의 요청에 따라 mps 장치를 우선 사용하며, 없을 경우 cpu로 폴백합니다.
 device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 print(f"🚀 학습 장치 설정: {device} (MacBook Pro M5 가속 모드)")
 
-# 구글 서비스 계정 키 경로 (사용자 환경 절대 경로 유지)
+# 구글 서비스 계정 키 경로
 KEY_PATH = "/Users/lsj/Desktop/구글 연결 키/creds lotto.json"
 
 # 학습 시야(Window Size) 설정 - 8가지 관점
@@ -36,19 +35,14 @@ class LottoBrain(nn.Module):
         self.fc = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
-        # Hidden state, Cell state 초기화
         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(device)
         c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(device)
-
-        # LSTM 순전파
         out, _ = self.lstm(x, (h0, c0))
-
-        # 마지막 시퀀스의 출력만 사용 (Many-to-One)
         out = self.fc(out[:, -1, :])
         return out
 
 # ==========================================
-# [3] 줄스(Google Sheets) 접속 및 데이터 로드
+# [3] 데이터 로드 및 전처리
 # ==========================================
 def connect_jules():
     """구글 시트 연결 객체 반환"""
@@ -56,7 +50,6 @@ def connect_jules():
         'https://www.googleapis.com/auth/spreadsheets',
         'https://www.googleapis.com/auth/drive'
     ]
-    
     try:
         creds = Credentials.from_service_account_file(KEY_PATH, scopes=scopes)
         client = gspread.authorize(creds)
@@ -69,65 +62,47 @@ def connect_jules():
 def load_data():
     """'시트1'에서 로또 데이터 로드 및 전처리"""
     sheet = connect_jules()
-    if not sheet:
-        return None
+    if not sheet: return None
 
     try:
         ws = sheet.worksheet("시트1")
         data = ws.get_all_values()
-
-        # 데이터프레임 생성 (헤더 포함)
         df = pd.DataFrame(data[1:], columns=data[0])
 
-        # 전처리: '명', '원', ',' 제거 후 숫자 변환
+        # 전처리
         df['당첨자 수'] = df['당첨자 수'].astype(str).str.replace('명', '').str.replace(',', '').astype(float)
         df['1게임당 총 당첨금액'] = df['1게임당 총 당첨금액'].astype(str).str.replace('원', '').str.replace(',', '').astype(float)
 
-        # 필요한 9개 컬럼 추출 및 숫자형 변환
         cols = ['1번', '2번', '3번', '4번', '5번', '6번', '보너스', '당첨자 수', '1게임당 총 당첨금액']
         df = df[cols].apply(pd.to_numeric)
 
-        # LSTM 학습을 위해 과거 데이터가 먼저 오도록 역순 정렬 (최신이 마지막에 오도록)
-        # 원본 데이터(시트1)는 최신 회차가 상단에 있으므로, 역순으로 뒤집어야 시간 순서가 됨.
+        # LSTM 학습용 (과거 -> 최신)
         df_reversed = df.iloc[::-1].reset_index(drop=True)
-
         return df_reversed
     except Exception as e:
         print(f"⚠️ 데이터 로드 중 오류: {e}")
         return None
 
 # ==========================================
-# [4] 통합 학습 및 예측 파이프라인
+# [4] AI 자율 학습 및 예측 파이프라인
 # ==========================================
-def run_pipeline():
+def run_pipeline(df):
     """8가지 시야(Scale)에 대해 학습 후, 앙상블 예측"""
-    df = load_data()
-    if df is None:
-        return [], 0.0
-
     print("\n" + "="*50)
     print("🧠 [통합 자율 주행 엔진] 9차원 데이터 학습 및 예측 시작")
     print("="*50)
 
-    # 데이터 스케일링 (0~1)
     scaler = MinMaxScaler()
     scaled_data = scaler.fit_transform(df.values)
-
     predictions = []
 
     for seq_len in SCALES:
-        if len(scaled_data) <= seq_len:
-            print(f"⚠️ 데이터 부족으로 스킵: {seq_len}주 시야")
-            continue
+        if len(scaled_data) <= seq_len: continue
 
         print(f"\n🔭 [{seq_len}주 시야] 9차원 데이터 학습 시작...")
-
-        # 에포크 설정 (기존 로직 유지: 짧은 시야는 많이, 긴 시야는 적게)
         epochs = 1000 if seq_len < 100 else (500 if seq_len < 500 else 300)
 
-        # 학습 데이터셋 구성
-        x_train = []
-        y_train = []
+        x_train, y_train = [], []
         for i in range(seq_len, len(scaled_data)):
             x_train.append(scaled_data[i-seq_len:i])
             y_train.append(scaled_data[i])
@@ -135,56 +110,35 @@ def run_pipeline():
         x_train = torch.tensor(np.array(x_train), dtype=torch.float32).to(device)
         y_train = torch.tensor(np.array(y_train), dtype=torch.float32).to(device)
 
-        # 모델 초기화
         model = LottoBrain(9, 128, 3, 9).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
         criterion = nn.MSELoss()
 
-        # 학습
         model.train()
-        start_time = time.time()
-
         for epoch in range(epochs):
             optimizer.zero_grad()
-            output = model(x_train)
-            loss = criterion(output, y_train)
+            loss = criterion(model(x_train), y_train)
             loss.backward()
             optimizer.step()
-
-            # 로그 출력 (100 에포크 단위)
             if (epoch+1) % 100 == 0:
                 print(f"Epoch [{epoch+1}/{epochs}], Loss: {loss.item():.6f}")
 
-        # 모델 저장
-        model_name = f"lotto_model_{seq_len}.pth"
-        torch.save(model.state_dict(), model_name)
-        duration = time.time() - start_time
-        print(f"✅ {model_name} 학습 완료 (소요시간: {duration:.1f}초)")
-
-        # [예측] 다음 회차 예측
+        # 예측
         model.eval()
         with torch.no_grad():
-            last_seq = scaled_data[-seq_len:] # (seq_len, 9)
-            last_seq_tensor = torch.tensor(last_seq, dtype=torch.float32).unsqueeze(0).to(device) # (1, seq_len, 9)
+            last_seq = scaled_data[-seq_len:]
+            last_seq_tensor = torch.tensor(last_seq, dtype=torch.float32).unsqueeze(0).to(device)
+            predicted_scaled = model(last_seq_tensor).cpu().numpy()
+            predicted_original = scaler.inverse_transform(predicted_scaled)
 
-            predicted_scaled = model(last_seq_tensor).cpu().numpy() # (1, 9)
-
-            # 스케일 역변환
-            predicted_original = scaler.inverse_transform(predicted_scaled) # (1, 9)
-
-            # 로또 번호 (앞 6개) 추출 및 정수 반올림
-            lotto_nums = predicted_original[0][:6]
-            lotto_nums = np.round(lotto_nums).astype(int)
-
-            # 1~45 범위 제한 및 중복 처리
+            lotto_nums = np.round(predicted_original[0][:6]).astype(int)
             lotto_nums = np.clip(lotto_nums, 1, 45)
             unique_nums = np.unique(lotto_nums)
 
-            # 중복 제거 후 6개가 안 되면 부족한 개수만큼 랜덤 추가 (기존 번호 제외)
             if len(unique_nums) < 6:
-                missing_count = 6 - len(unique_nums)
-                available = list(set(range(1, 46)) - set(unique_nums))
-                filled = random.sample(available, missing_count)
+                missing = 6 - len(unique_nums)
+                avail = list(set(range(1, 46)) - set(unique_nums))
+                filled = random.sample(avail, missing)
                 final_nums = sorted(list(unique_nums) + filled)
             else:
                 final_nums = sorted(list(unique_nums))
@@ -192,135 +146,196 @@ def run_pipeline():
             predictions.append(final_nums)
             print(f"🔮 예측 결과 ({seq_len}주 모델): {final_nums}")
 
-    # 조작 의심 지수 계산 (예측된 번호들의 분산 활용)
-    if predictions:
-        all_nums = [num for sublist in predictions for num in sublist]
-        std_dev = np.std(all_nums)
-        anomaly_score = round(std_dev, 2)
-    else:
-        anomaly_score = 0.0
-
-    return predictions, anomaly_score
+    return predictions
 
 # ==========================================
-# [5] 리포트 작성 (구글 시트)
+# [5] AI 자율 필터링 및 게임 생성 (핵심 로직)
 # ==========================================
-def update_jules_report(prediction_list, anomaly_score):
-    """추천번호 시트에 결과 작성"""
+def analyze_and_generate(predictions, df):
+    """
+    통합 점수 분석 -> 확률의 절벽 발견 -> 하위 번호 제외 -> 15게임 생성
+    """
+    print("\n" + "="*50)
+    print("🤖 [AI 자율 필터링] 확률의 절벽 분석 및 게임 생성")
+    print("="*50)
+
+    # 1. 통합 점수 계산
+    scores = {i: 0.0 for i in range(1, 46)}
+    
+    # (A) Recency Score (최근 10회차 가중치)
+    recent_10 = df.iloc[-10:]
+    for i, row in enumerate(recent_10.itertuples()):
+        # 최신일수록 높은 점수 (1점 ~ 10점)
+        weight = i + 1
+        # itertuples Index=0, columns start from 1.
+        # But DataFrame columns are '1번', '2번' etc.
+        # Check column index mapping carefully.
+        # df structure: '1번' is col 0 in df (after loading).
+        # row is a named tuple.
+        nums = [row._1, row._2, row._3, row._4, row._5, row._6]
+        for n in nums:
+            scores[int(n)] += weight * 0.5
+
+    # (B) Ensemble Score (AI 모델 예측 빈도)
+    for pred_set in predictions:
+        for num in pred_set:
+            scores[int(num)] += 30.0  # 모델 예측 번호에 강력한 가중치
+
+    # 2. 확률의 절벽(Probability Cliff) 탐지
+    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+    cliff_idx = -1
+    max_drop = -1.0
+
+    # 하위 10개(idx 35) ~ 30개(idx 15) 사이 탐색
+    search_start = 15
+    search_end = 35
+
+    for i in range(search_start, search_end):
+        current_score = sorted_scores[i][1]
+        next_score = sorted_scores[i+1][1]
+        drop = current_score - next_score
+
+        if drop > max_drop:
+            max_drop = drop
+            cliff_idx = i
+
+    elite_group_tuples = sorted_scores[:cliff_idx+1]
+    elite_group = [num for num, score in elite_group_tuples]
+    excluded_group = [num for num, score in sorted_scores[cliff_idx+1:]]
+
+    print(f"📉 확률의 절벽 발견: Rank {cliff_idx+1} (점수 낙폭: {max_drop:.2f})")
+    print(f"🚫 제외된 번호 ({len(excluded_group)}개): {excluded_group}")
+    print(f"💎 정예 번호 ({len(elite_group)}개): {elite_group[:10]}...")
+
+    # 3. 게임 생성 (15게임)
+    final_games = []
+
+    # [Phase 1] 보험용: 1~45번 모든 번호가 최소 1회 포함 (약 8게임)
+    all_nums = list(range(1, 46))
+    random.shuffle(all_nums)
+
+    chunks = [all_nums[i:i + 6] for i in range(0, len(all_nums), 6)]
+
+    for chunk in chunks:
+        if len(chunk) == 6:
+            final_games.append(sorted(chunk))
+        else:
+            # 나머지 처리 (중복 방지 로직 적용)
+            remainder = set(chunk)
+            needed = 6 - len(remainder)
+            fillers = []
+            for num in elite_group:
+                if num not in remainder:
+                    fillers.append(num)
+                if len(fillers) == needed:
+                    break
+            final_games.append(sorted(list(remainder) + fillers))
+
+    # [Phase 2] 정예용: 남은 게임 수만큼 Elite 번호로 채움 (상위 번호 중복 허용)
+    attempts = 0
+    max_attempts = 1000
+
+    while len(final_games) < 15 and attempts < max_attempts:
+        attempts += 1
+        weights = [scores[n] for n in elite_group]
+        selected = []
+
+        # 번호 6개 뽑기 (한 게임 내 중복 불가)
+        temp_weights = weights[:]
+        temp_pool = elite_group[:]
+
+        while len(selected) < 6:
+            # 가중치 기반 선택
+            if sum(temp_weights) == 0: # 예외 처리
+                 pick = random.choice(temp_pool)
+            else:
+                 pick = random.choices(temp_pool, weights=temp_weights, k=1)[0]
+
+            if pick not in selected:
+                selected.append(pick)
+
+        new_game = sorted(selected)
+
+        # 게임 간 중복 체크 (Phase 2 내에서는 유니크하게, Phase 1과는 겹쳐도 허용하나 가급적 회피)
+        if new_game not in final_games:
+            final_games.append(new_game)
+
+    # 만약 루프를 다 돌아도 15개가 안되면 (그럴리 없지만) 중복 허용해서 채움
+    while len(final_games) < 15:
+        final_games.append(final_games[-1])
+
+    return final_games, len(excluded_group), cliff_idx + 1
+
+# ==========================================
+# [6] 리포트 작성 (셀 병합 시각화)
+# ==========================================
+def update_report(games, excluded_count, cliff_rank):
+    """구글 시트에 15게임 및 분석 정보 작성 (병합 적용)"""
     sheet = connect_jules()
     if not sheet: return
 
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
-    
     try:
-        ws_report = sheet.worksheet("추천번호")
+        ws = sheet.worksheet("추천번호")
     except:
-        ws_report = sheet.add_worksheet(title="추천번호", rows=100, cols=20)
+        ws = sheet.add_worksheet(title="추천번호", rows=100, cols=20)
 
-    # 시트 초기화 (Clear)
-    ws_report.clear()
-    print("🧹 [초기화] '추천번호' 시트 내용을 삭제하고 새로 작성을 시작합니다.")
+    ws.clear()
 
+    # 데이터 준비 (30행 x 7열)
+    data = [['' for _ in range(7)] for _ in range(30)]
+
+    # 타이틀 & 요약
+    data[0][0] = f"💰 [AI 자율 필터링] 15게임 최종 리포트 ({now})"
+    data[1][0] = f"📉 확률 절벽: Rank {cliff_rank} | 🚫 제외: {excluded_count}수 | 💎 정예 집중 모드"
+
+    # 헤더
+    headers = ["No.", "A", "B", "C", "D", "E", "F"]
+    for j, h in enumerate(headers):
+        data[2][j] = h
+
+    # 게임 데이터 입력 (4행부터)
+    for i, game in enumerate(games):
+        row_idx = 3 + i
+        data[row_idx][0] = f"Game {i+1}"
+        for j, num in enumerate(game):
+            data[row_idx][j+1] = int(num) # Python int 변환 필수
+
+    # 업데이트
+    ws.update(range_name='A1', values=data)
+
+    # 셀 병합 (가독성 극대화)
     try:
-        # 리포트 데이터 준비 (20행 x 7열)
-        report_data = [['' for _ in range(7)] for _ in range(20)]
-
-        # (A) 제목
-        report_data[0][0] = "[AI 9차원 앙상블] 주간 분석 리포트"
-
-        # (B) 분석 개요
-        report_data[2][0] = "1. 분석 개요"
-        report_data[3][0] = f"작성 일시: {now}"
-        report_data[3][3] = "분석 모델: 9차원 LSTM 앙상블 (통합 학습)"
-
-        # (C) AI 추천 번호
-        report_data[5][0] = "2. AI 추천 번호 (5 Game)"
-
-        # 5세트 번호 입력
-        row_offset = 6
-        for i, numbers in enumerate(prediction_list):
-            if i >= 5: break # 최대 5게임
-
-            report_data[row_offset + i][0] = f"Game {i+1}"
-            for j, num in enumerate(numbers):
-                if j < 6:
-                    report_data[row_offset + i][j+1] = int(num) # numpy int -> int 변환
-
-        # (D) 조작 의심 지수
-        sec3_row_idx = 13
-        report_data[sec3_row_idx][0] = "3. 조작 의심 지수 (모델 간 변동성)"
-        report_data[sec3_row_idx+1][0] = f"Anomaly Score: {anomaly_score}"
-
-        # (E) 시스템 로그
-        sec4_row_idx = 16
-        report_data[sec4_row_idx][0] = "4. 시스템 로그"
-        report_data[sec4_row_idx+1][0] = "M5 9차원 앙상블 완료"
-        report_data[sec4_row_idx+1][3] = "자율 주행 성공"
-
-        # 일괄 업데이트 (최신 gspread 문법 적용)
-        # DeprecationWarning 방지를 위해 range_name, values 명시
-        ws_report.update(range_name='A1', values=report_data)
-
-        # 셀 병합 (A열~G열)
-        ws_report.merge_cells('A1:G1')
-        ws_report.merge_cells('A3:G3')
-        ws_report.merge_cells('A6:G6')
-        ws_report.merge_cells('A14:G14')
-        ws_report.merge_cells('A17:G17')
-
-        print(f"✅ [리포트] '추천번호' 탭에 5게임 분석 결과 작성 완료 ({now})")
-
+        ws.merge_cells('A1:G1') # 메인 타이틀
+        ws.merge_cells('A2:G2') # 요약 정보
     except Exception as e:
-        print(f"⚠️ 리포트 작성 중 오류: {e}")
+        print(f"⚠️ 셀 병합 중 경고: {e}")
 
-    # 실행로그 탭 기록
-    try:
-        try:
-            ws_log = sheet.worksheet("실행로그")
-        except:
-            ws_log = sheet.add_worksheet(title="실행로그", rows=1000, cols=10)
-
-        ws_log.append_row([now, "자율 주행 성공", f"M5 9차원 앙상블 완료 (Score: {anomaly_score})"])
-    except:
-        pass
+    print(f"✅ [리포트] 15게임 작성 및 셀 병합 완료.")
 
 # ==========================================
-# [6] 메인 실행부
+# [7] 메인 실행부
 # ==========================================
 if __name__ == "__main__":
-    print("🚀 AI 분석 및 전송 시스템 가동...")
-    
-    # 1. 학습 및 예측 수행 (파이프라인 실행)
-    raw_predictions, anomaly_val = run_pipeline()
+    # 1. 데이터 로드
+    df = load_data()
+    if df is not None:
+        # 2. 학습 및 예측 (앙상블)
+        raw_predictions = run_pipeline(df)
 
-    # 2. 결과 처리 (5게임 선정)
-    final_games = []
+        # 3. AI 분석 및 게임 생성
+        final_games, excluded_cnt, cliff_rank = analyze_and_generate(raw_predictions, df)
 
-    # 중복 제거 (리스트는 unhashable하므로 튜플로 변환하여 set 사용)
-    unique_preds = set(tuple(p) for p in raw_predictions)
-    unique_preds_list = [list(p) for p in unique_preds]
+        # 4. 결과 출력
+        print(f"\n🎲 최종 생성된 15게임:")
+        for idx, game in enumerate(final_games):
+            tag = "[보험]" if idx < 8 else "[정예]"
+            print(f"  Game {idx+1} {tag}: {game}")
 
-    # 8개 모델의 예측 중 유니크한 것들을 우선 채택
-    if len(unique_preds_list) >= 5:
-        final_games = unique_preds_list[:5]
-    else:
-        final_games = unique_preds_list[:]
-        # 부족한 게임 수는 랜덤 생성으로 채움 (단, 기존 예측값과 안 겹치게 노력)
-        while len(final_games) < 5:
-            new_game = sorted(random.sample(range(1, 46), 6))
-            if new_game not in final_games:
-                final_games.append(new_game)
+        # 5. 리포트 전송
+        update_report(final_games, excluded_cnt, cliff_rank)
 
-    # 정렬 (보기 좋게)
-    final_games.sort(key=lambda x: x[0]) # 첫 번째 번호 기준 정렬 등
-
-    print(f"\n🎲 최종 선정된 5게임:")
-    for idx, game in enumerate(final_games):
-        print(f"  Game {idx+1}: {game}")
-
-    # 3. 리포트 전송
-    update_jules_report(final_games, anomaly_val)
-    
     print("\n" + "="*50)
     print("🎉 모든 작업이 완료되었습니다.")
     print("="*50)
