@@ -18,6 +18,7 @@ from dotenv import load_dotenv
 # ==========================================
 # .env 파일 로드
 load_dotenv()
+print(f"DEBUG: 로드된 키1: {os.getenv('GEMINI_API_KEY_1')[:10]}...")
 
 # M5 칩(Apple Silicon) 가속 모드 확인
 device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
