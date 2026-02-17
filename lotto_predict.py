@@ -165,6 +165,24 @@ def run_pipeline(df):
 # ==========================================
 # [5] 제미나이 AI 전략가 (Gemini Strategist)
 # ==========================================
+def get_available_model(client):
+    """
+    사용 가능한 Gemini 모델을 탐색하여 반환 (Auto-Model Selector)
+    후보군: gemini-2.0-flash -> gemini-1.5-flash -> gemini-1.5-pro
+    """
+    candidates = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
+    for model in candidates:
+        try:
+            # 아주 짧은 요청으로 가용성 테스트
+            client.models.generate_content(
+                model=model,
+                contents="Hello"
+            )
+            return model
+        except Exception:
+            continue
+    return None
+
 def get_gemini_strategy(scores):
     """
     제미나이 AI에게 확률 데이터를 제공하고 최종 15세트와 전략 요약을 요청
@@ -176,6 +194,15 @@ def get_gemini_strategy(scores):
     try:
         # 새로운 클라이언트 인스턴스 생성
         client = genai.Client(api_key=GEMINI_API_KEY)
+
+        # [NEW] 가용 모델 자동 탐색
+        model_name = get_available_model(client)
+
+        if not model_name:
+            print("⚠️ 사용 가능한 Gemini 모델이 없습니다. (모두 할당량 초과 또는 에러)")
+            return None
+
+        print(f"✨ 이번 주 두뇌로 '{model_name}'이(가) 선정되었습니다.")
 
         prompt = f"""
         너는 최고의 로또 전략가야. 아래 데이터는 LSTM 모델들이 분석한 이번 주 로또 번호별 확률 점수야.
@@ -199,9 +226,9 @@ def get_gemini_strategy(scores):
 
         print("\n🤖 [Gemini AI] 전략 수립 중... (최종 판단자)")
 
-        # 모델 호출 (최신 gemini-2.0-flash 사용)
+        # 모델 호출 (선정된 모델 사용)
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model=model_name,
             contents=prompt
         )
 
