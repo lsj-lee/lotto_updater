@@ -177,13 +177,14 @@ def run_pipeline(df):
 def get_gemini_strategy(scores):
     """
     제미나이 AI에게 확률 데이터를 제공하고 최종 15세트와 전략 요약을 요청
-    멀티 키 로테이션 및 재시도 전략 적용
+    Tiered Model Fallback: gemini-2.0-flash -> gemini-1.5-flash
     """
     if not API_KEYS:
         print("⚠️ API 키가 없습니다. 기본 알고리즘으로 전환합니다.")
         return None
 
-    model_name = 'gemini-1.5-flash'
+    # [모델 우선순위 설정]
+    models = ['gemini-2.0-flash', 'gemini-1.5-flash']
 
     prompt = f"""
     너는 최고의 로또 전략가야. 아래 데이터는 LSTM 모델들이 분석한 이번 주 로또 번호별 확률 점수야.
@@ -207,34 +208,44 @@ def get_gemini_strategy(scores):
 
     print("\n🤖 [Gemini AI] 전략 수립 중... (최종 판단자)")
 
-    for i, key in enumerate(API_KEYS):
-        try:
-            print(f"🔑 API Key {i+1} 시도 중... (Model: {model_name})")
-            client = genai.Client(api_key=key)
+    for model_idx, model_name in enumerate(models):
+        print(f"🔍 [{model_idx + 1}단계] {model_name} 시도 중...")
 
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt
-            )
+        for i, key in enumerate(API_KEYS):
+            try:
+                # print(f"  🔑 Key {i+1} 시도...") # 디버깅용
+                client = genai.Client(api_key=key)
 
-            # 응답 처리
-            text_content = response.text
-            if "```json" in text_content:
-                text_content = text_content.split("```json")[1].split("```")[0].strip()
-            elif "```" in text_content:
-                text_content = text_content.split("```")[1].split("```")[0].strip()
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt
+                )
 
-            result = json.loads(text_content)
-            return result
+                # 응답 처리
+                text_content = response.text
+                if "```json" in text_content:
+                    text_content = text_content.split("```json")[1].split("```")[0].strip()
+                elif "```" in text_content:
+                    text_content = text_content.split("```")[1].split("```")[0].strip()
 
-        except Exception as e:
-            print(f"❌ Key {i+1} 호출 실패: {e}")
-            if i < len(API_KEYS) - 1:
-                print("⏳ 10초 대기 후 다음 키 시도...")
-                time.sleep(10)
-            else:
-                print("⚠️ 모든 API 키 시도 실패.")
+                result = json.loads(text_content)
+                return result
 
+            except Exception as e:
+                error_msg = str(e)
+                # 429 Error check (Quota exceeded)
+                if "429" in error_msg or "Quota exceeded" in error_msg:
+                    print(f"🔄 할당량 초과 ({model_name}). 다음 모델로 전환합니다.")
+                    break # Break inner key loop to switch model immediately
+
+                print(f"❌ Key {i+1} 호출 실패 ({model_name}): {error_msg}")
+                if i < len(API_KEYS) - 1:
+                    print("⏳ 10초 대기 후 다음 키 시도...")
+                    time.sleep(10)
+                else:
+                    print(f"⚠️ {model_name}: 모든 키 실패.")
+
+    print("⚠️ 모든 모델 및 API 키 시도 실패.")
     return None
 
 # ==========================================
