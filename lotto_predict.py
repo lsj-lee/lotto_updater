@@ -14,13 +14,14 @@ import os
 # [1] 환경 설정 및 장치 확인
 # ==========================================
 # M5 칩(Apple Silicon) 가속 모드 확인
+# 사용자의 요청에 따라 mps 장치를 우선 사용하며, 없을 경우 cpu로 폴백합니다.
 device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 print(f"🚀 학습 장치 설정: {device} (MacBook Pro M5 가속 모드)")
 
-# 구글 서비스 계정 키 경로 (사용자 환경)
+# 구글 서비스 계정 키 경로 (사용자 환경 절대 경로 유지)
 KEY_PATH = "/Users/lsj/Desktop/구글 연결 키/creds lotto.json"
 
-# 학습 시야(Window Size) 설정
+# 학습 시야(Window Size) 설정 - 8가지 관점
 SCALES = [10, 50, 100, 200, 300, 400, 500, 1000]
 
 # ==========================================
@@ -96,16 +97,16 @@ def load_data():
         return None
 
 # ==========================================
-# [4] 학습 및 예측 로직 통합
+# [4] 통합 학습 및 예측 파이프라인
 # ==========================================
-def train_and_predict():
-    """8가지 시야(Scale)에 대해 학습 후, 다음 회차 번호 예측"""
+def run_pipeline():
+    """8가지 시야(Scale)에 대해 학습 후, 앙상블 예측"""
     df = load_data()
     if df is None:
         return [], 0.0
 
     print("\n" + "="*50)
-    print("🧠 9차원 데이터 통합 학습 및 예측 루틴 시작")
+    print("🧠 [통합 자율 주행 엔진] 9차원 데이터 학습 및 예측 시작")
     print("="*50)
 
     # 데이터 스케일링 (0~1)
@@ -121,7 +122,7 @@ def train_and_predict():
 
         print(f"\n🔭 [{seq_len}주 시야] 9차원 데이터 학습 시작...")
 
-        # 에포크 설정 (기존 로직 유지)
+        # 에포크 설정 (기존 로직 유지: 짧은 시야는 많이, 긴 시야는 적게)
         epochs = 1000 if seq_len < 100 else (500 if seq_len < 500 else 300)
 
         # 학습 데이터셋 구성
@@ -154,14 +155,13 @@ def train_and_predict():
             if (epoch+1) % 100 == 0:
                 print(f"Epoch [{epoch+1}/{epochs}], Loss: {loss.item():.6f}")
 
-        # 모델 저장 (백업용)
+        # 모델 저장
         model_name = f"lotto_model_{seq_len}.pth"
         torch.save(model.state_dict(), model_name)
         duration = time.time() - start_time
         print(f"✅ {model_name} 학습 완료 (소요시간: {duration:.1f}초)")
 
         # [예측] 다음 회차 예측
-        # 마지막 seq_len 만큼의 데이터를 입력으로 사용
         model.eval()
         with torch.no_grad():
             last_seq = scaled_data[-seq_len:] # (seq_len, 9)
@@ -193,14 +193,10 @@ def train_and_predict():
             print(f"🔮 예측 결과 ({seq_len}주 모델): {final_nums}")
 
     # 조작 의심 지수 계산 (예측된 번호들의 분산 활용)
-    # 단순히 8개 모델의 예측값들이 얼마나 퍼져있는지를 수치화
-    # (여기서는 간단히 첫 번째 번호들의 표준편차를 사용해보거나, 임의의 지수를 계산)
-    # 기존 코드의 'random' 방식을 좀 더 그럴싸하게 포장
     if predictions:
-        # 모든 예측된 번호를 하나의 리스트로 만듬
         all_nums = [num for sublist in predictions for num in sublist]
         std_dev = np.std(all_nums)
-        anomaly_score = round(std_dev, 2) # 표준편차를 의심 지수로 활용 (변동성이 크면 의심?)
+        anomaly_score = round(std_dev, 2)
     else:
         anomaly_score = 0.0
 
@@ -221,12 +217,12 @@ def update_jules_report(prediction_list, anomaly_score):
     except:
         ws_report = sheet.add_worksheet(title="추천번호", rows=100, cols=20)
 
-    # 시트 초기화
+    # 시트 초기화 (Clear)
     ws_report.clear()
     print("🧹 [초기화] '추천번호' 시트 내용을 삭제하고 새로 작성을 시작합니다.")
 
     try:
-        # 리포트 데이터 준비
+        # 리포트 데이터 준비 (20행 x 7열)
         report_data = [['' for _ in range(7)] for _ in range(20)]
 
         # (A) 제목
@@ -261,10 +257,11 @@ def update_jules_report(prediction_list, anomaly_score):
         report_data[sec4_row_idx+1][0] = "M5 9차원 앙상블 완료"
         report_data[sec4_row_idx+1][3] = "자율 주행 성공"
 
-        # 일괄 업데이트
-        ws_report.update("A1", report_data)
+        # 일괄 업데이트 (최신 gspread 문법 적용)
+        # DeprecationWarning 방지를 위해 range_name, values 명시
+        ws_report.update(range_name='A1', values=report_data)
 
-        # 셀 병합
+        # 셀 병합 (A열~G열)
         ws_report.merge_cells('A1:G1')
         ws_report.merge_cells('A3:G3')
         ws_report.merge_cells('A6:G6')
@@ -293,8 +290,8 @@ def update_jules_report(prediction_list, anomaly_score):
 if __name__ == "__main__":
     print("🚀 AI 분석 및 전송 시스템 가동...")
     
-    # 1. 학습 및 예측 수행
-    raw_predictions, anomaly_val = train_and_predict()
+    # 1. 학습 및 예측 수행 (파이프라인 실행)
+    raw_predictions, anomaly_val = run_pipeline()
 
     # 2. 결과 처리 (5게임 선정)
     final_games = []
