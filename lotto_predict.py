@@ -9,12 +9,16 @@ import time
 import datetime
 import random
 import os
-import google.generativeai as genai
+from google import genai
 import json
+from dotenv import load_dotenv
 
 # ==========================================
 # [1] 환경 설정 및 장치 확인
 # ==========================================
+# .env 파일 로드
+load_dotenv()
+
 # M5 칩(Apple Silicon) 가속 모드 확인
 device = torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu")
 print(f"🚀 학습 장치 설정: {device} (MacBook Pro M5 가속 모드)")
@@ -22,8 +26,13 @@ print(f"🚀 학습 장치 설정: {device} (MacBook Pro M5 가속 모드)")
 # 구글 서비스 계정 키 경로
 KEY_PATH = "/Users/lsj/Desktop/구글 연결 키/creds lotto.json"
 
-# 제미나이 API 키 (사용자 입력 필요)
-GEMINI_API_KEY = ""
+# 제미나이 API 키
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+if GEMINI_API_KEY:
+    print("✅ 제미나이 API 키가 성공적으로 로드되었습니다.")
+else:
+    print("⚠️ GEMINI_API_KEY가 설정되지 않았습니다.")
 
 # 학습 시야(Window Size) 설정 - 8가지 관점
 SCALES = [10, 50, 100, 200, 300, 400, 500, 1000]
@@ -165,8 +174,8 @@ def get_gemini_strategy(scores):
         return None
 
     try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel('gemini-pro')
+        # 새로운 클라이언트 인스턴스 생성
+        client = genai.Client(api_key=GEMINI_API_KEY)
 
         prompt = f"""
         너는 최고의 로또 전략가야. 아래 데이터는 LSTM 모델들이 분석한 이번 주 로또 번호별 확률 점수야.
@@ -189,7 +198,12 @@ def get_gemini_strategy(scores):
         """
 
         print("\n🤖 [Gemini AI] 전략 수립 중... (최종 판단자)")
-        response = model.generate_content(prompt)
+
+        # 모델 호출 (최신 gemini-2.0-flash 사용)
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt
+        )
 
         # 응답 처리 (마크다운 제거 등)
         text_content = response.text
