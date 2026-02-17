@@ -22,8 +22,9 @@ def connect_jules():
         creds = Credentials.from_service_account_file(json_path, scopes=scopes)
         client = gspread.authorize(creds)
         
-        # '줄스' 시트 열기 (구글 시트 제목: "로또 max")
-        spreadsheet = client.open("로또 max")
+        # '줄스' 시트 열기 (구글 시트 제목: "로또_AI_자율주행_리포트")
+        # 실제 시트 제목이 다르다면 아래 이름을 시트 제목과 똑같이 맞춰주세요.
+        spreadsheet = client.open("로또 max") 
         return spreadsheet
     except Exception as e:
         print(f"❌ 줄스 연결 실패: {e}")
