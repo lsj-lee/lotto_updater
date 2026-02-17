@@ -25,7 +25,7 @@ def connect_jules():
         
         # '줄스' 시트 열기 (구글 시트 제목: "로또_AI_자율주행_리포트")
         # 실제 시트 제목이 다르다면 아래 이름을 시트 제목과 똑같이 맞춰주세요.
-        spreadsheet = client.open("로또_AI_자율주행_리포트") 
+        spreadsheet = client.open("로또 max") 
         return spreadsheet
     except Exception as e:
         print(f"❌ 줄스 연결 실패: {e}")
