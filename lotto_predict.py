@@ -177,14 +177,21 @@ def run_pipeline(df):
 def get_gemini_strategy(scores):
     """
     제미나이 AI에게 확률 데이터를 제공하고 최종 15세트와 전략 요약을 요청
-    Tiered Model Fallback: gemini-2.0-flash -> gemini-1.5-flash
+    Tiered Model Fallback: 지능 지수 높은 순서대로
     """
     if not API_KEYS:
         print("⚠️ API 키가 없습니다. 기본 알고리즘으로 전환합니다.")
         return None
 
-    # [모델 우선순위 설정]
-    models = ['gemini-2.0-flash', 'gemini-1.5-flash']
+    # [1. 엘리트 모델 우선순위 리스트]
+    models = [
+        'gemini-2.5-pro',              # (1순위) 현존 최강의 논리 모델
+        'gemini-3-pro-preview',        # (2순위) 차세대 고지능 모델
+        'gemini-2.0-flash',            # (3순위) 표준 주력 고성능 모델
+        'gemini-3-flash-preview',      # (4순위) 가용성 높은 최신 모델
+        'gemini-2.5-flash',            # (5순위) 안정적인 백업
+        'gemini-flash-latest'          # (6순위) 무조건 실행 보장용
+    ]
 
     prompt = f"""
     너는 최고의 로또 전략가야. 아래 데이터는 LSTM 모델들이 분석한 이번 주 로또 번호별 확률 점수야.
@@ -229,13 +236,20 @@ def get_gemini_strategy(scores):
                     text_content = text_content.split("```")[1].split("```")[0].strip()
 
                 result = json.loads(text_content)
+
+                # 성공 메시지
+                print(f"✨ [최종 승인] '{model_name}' 엔진이 전략을 확정했습니다.")
                 return result
 
             except Exception as e:
                 error_msg = str(e)
                 # 429 Error check (Quota exceeded)
                 if "429" in error_msg or "Quota exceeded" in error_msg:
-                    print(f"🔄 할당량 초과 ({model_name}). 다음 모델로 전환합니다.")
+                    if model_idx + 1 < len(models):
+                        next_model = models[model_idx + 1]
+                        print(f"🔄 [전환] {model_name} 할당량 초과. 더 안정적인 {next_model}로 교체합니다.")
+                    else:
+                        print(f"⚠️ {model_name} 할당량 초과. 더 이상 사용할 모델이 없습니다.")
                     break # Break inner key loop to switch model immediately
 
                 print(f"❌ Key {i+1} 호출 실패 ({model_name}): {error_msg}")
