@@ -172,63 +172,62 @@ def run_pipeline(df):
     return predictions
 
 # ==========================================
-# [5] 제미나이 AI 전략가 (Gemini Strategist)
+# [5] 제미나이 AI 전략가 (Elite-20 Sniper Mode)
 # ==========================================
 def get_gemini_strategy(scores):
     """
-    제미나이 AI에게 확률 데이터를 제공하고 최종 15세트와 전략 요약을 요청
-    Tiered Model Fallback: 지능 지수 높은 순서대로
+    제미나이 AI에게 '20수 정예 스나이퍼' 전략을 요청.
+    15-20개 정예 번호를 추출하고, 이를 기반으로 최적의 10게임을 구성.
     """
     if not API_KEYS:
         print("⚠️ API 키가 없습니다. 기본 알고리즘으로 전환합니다.")
         return None
 
-    # [1. 엘리트 모델 우선순위 리스트]
+    # [차세대 모델 우선순위]
     models = [
-        'gemini-2.5-pro',              # (1순위) 현존 최강의 논리 모델
-        'gemini-3-pro-preview',        # (2순위) 차세대 고지능 모델
-        'gemini-2.0-flash',            # (3순위) 표준 주력 고성능 모델
-        'gemini-3-flash-preview',      # (4순위) 가용성 높은 최신 모델
-        'gemini-2.5-flash',            # (5순위) 안정적인 백업
-        'gemini-flash-latest'          # (6순위) 무조건 실행 보장용
+        'gemini-3-flash-preview',
+        'gemini-2.5-flash',
+        'gemini-flash-latest'
     ]
 
     prompt = f"""
-    너는 최고의 로또 전략가야. 아래 데이터는 LSTM 모델들이 분석한 이번 주 로또 번호별 확률 점수야.
-    점수가 높을수록 당첨 확률이 높다고 판단된 번호야.
+    너는 최고의 로또 전략가이자 통계 전문가야. 이번 주는 '20수 정예 스나이퍼(Elite-20 Sniper)' 모드로 작동한다.
+    아래 데이터는 LSTM 모델들이 분석한 이번 주 로또 번호별 확률 점수야.
 
     [확률 데이터]
     {json.dumps(scores)}
 
     [너의 임무]
-    1. 이 데이터를 분석해서, 이번 주에 가장 확률이 낮거나 제외해야 한다고 판단되는 번호들을 10~30개 사이에서 네 직관과 데이터에 기반해 필터링해.
-    2. 남은 '정예 번호'들을 조합하여 당첨 확률이 가장 높은 최종 15세트(각 세트 6개 번호)를 구성해줘.
-    3. 왜 이 번호들을 필터링했는지, 왜 이 조합이 강력한지 짧은 통찰을 담은 '이번 주 전략 요약'을 한글로 작성해줘 (3문장 이내).
+    1. 전체 45개 번호 중 이번 주 당첨 확률이 가장 강력한 '정예 번호 15~20개'를 엄선하라.
+    2. 엄선된 15~20개 번호 *만을* 사용하여 수학적으로 가장 당첨 확률이 높은 '최종 10게임'을 구성하라.
+    3. 조합 알고리즘:
+       - '지능형 분산 배치' 로직을 적용하여 번호가 너무 겹치지 않게 하라.
+       - 선택된 정예 번호들이 골고루 활용되도록 배치하라.
+    4. 전략 요약:
+       - 왜 이 번호들을 선택했는지, 조합 전략은 무엇인지 핵심을 요약하라 (한글 3문장 이내).
 
     [출력 형식]
     반드시 JSON 형식으로만 출력해. 설명이나 마크다운 없이 순수 JSON만.
     {{
         "strategy_summary": "전략 요약 텍스트 (한글)",
-        "recommended_sets": [[1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12], ... (총 15개)]
+        "elite_numbers": [1, 5, 10, ...],
+        "final_10_games": [[1, 2, 3, 4, 5, 6], ... (총 10개)]
     }}
     """
 
-    print("\n🤖 [Gemini AI] 전략 수립 중... (최종 판단자)")
+    print("\n🤖 [Gemini AI] '20수 정예 스나이퍼' 전략 수립 중...")
 
     for model_idx, model_name in enumerate(models):
         print(f"🔍 [{model_idx + 1}단계] {model_name} 시도 중...")
 
         for i, key in enumerate(API_KEYS):
             try:
-                # print(f"  🔑 Key {i+1} 시도...") # 디버깅용
                 client = genai.Client(api_key=key)
-
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt
                 )
 
-                # 응답 처리
                 text_content = response.text
                 if "```json" in text_content:
                     text_content = text_content.split("```json")[1].split("```")[0].strip()
@@ -237,20 +236,22 @@ def get_gemini_strategy(scores):
 
                 result = json.loads(text_content)
 
-                # 성공 메시지
-                print(f"✨ [최종 승인] '{model_name}' 엔진이 전략을 확정했습니다.")
-                return result
+                # 검증: 10게임 확인
+                if "final_10_games" in result and len(result["final_10_games"]) > 0:
+                    print(f"✨ [최종 승인] '{model_name}' 엔진이 전략을 확정했습니다.")
+                    return result
+                else:
+                    print(f"⚠️ {model_name}: 응답 형식이 올바르지 않습니다.")
 
             except Exception as e:
                 error_msg = str(e)
-                # 429 Error check (Quota exceeded)
                 if "429" in error_msg or "Quota exceeded" in error_msg:
                     if model_idx + 1 < len(models):
                         next_model = models[model_idx + 1]
                         print(f"🔄 [전환] {model_name} 할당량 초과. 더 안정적인 {next_model}로 교체합니다.")
                     else:
                         print(f"⚠️ {model_name} 할당량 초과. 더 이상 사용할 모델이 없습니다.")
-                    break # Break inner key loop to switch model immediately
+                    break
 
                 print(f"❌ Key {i+1} 호출 실패 ({model_name}): {error_msg}")
                 if i < len(API_KEYS) - 1:
@@ -267,7 +268,7 @@ def get_gemini_strategy(scores):
 # ==========================================
 def analyze_and_generate(predictions, df):
     """
-    통합 점수 분석 -> (Gemini 또는 확률의 절벽) -> 최종 15게임 생성
+    통합 점수 분석 -> (Gemini Elite-20) -> 최종 10게임 생성
     """
     print("\n" + "="*50)
     print("🤖 [AI 자율 필터링] 확률 데이터 분석 및 게임 생성")
@@ -294,101 +295,71 @@ def analyze_and_generate(predictions, df):
 
     if gemini_result:
         print("✨ Gemini가 최종 전략을 확정했습니다.")
-        final_games = gemini_result['recommended_sets']
-        strategy_summary = gemini_result['strategy_summary']
+        final_games = gemini_result.get('final_10_games', [])
+        strategy_summary = gemini_result.get('strategy_summary', "전략 요약 없음")
+        elite_nums = gemini_result.get('elite_numbers', [])
 
-        # 데이터 정합성 체크
+        # 데이터 정합성 체크 및 int 변환
         validated_games = []
         for game in final_games:
             game = sorted([int(n) for n in game])
             if len(game) == 6:
                 validated_games.append(game)
 
-        # 부족하면 채우기
-        while len(validated_games) < 15:
-            validated_games.append(validated_games[-1] if validated_games else [1,2,3,4,5,6])
+        # 10게임 맞추기 (부족하면 마지막 게임 복제, 넘으면 자름)
+        while len(validated_games) < 10:
+             # 엘리트 번호로 랜덤 생성하여 채움
+             if len(elite_nums) >= 6:
+                 fill_game = sorted([int(n) for n in random.sample(elite_nums, 6)])
+                 validated_games.append(fill_game)
+             else:
+                 validated_games.append([1,2,3,4,5,6])
 
-        return validated_games[:15], 0, 0, strategy_summary
+        validated_games = validated_games[:10]
 
-    # 3. Fallback: 기존 확률의 절벽(Probability Cliff) 로직
-    print("⚠️ Gemini 사용 불가. 기존 알고리즘으로 전환합니다.")
+        return validated_games, len(elite_nums), strategy_summary
+
+    # 3. Fallback: Gemini 실패 시 상위 20개 추출 후 10게임 생성
+    print("⚠️ Gemini 사용 불가. 자체 Elite-20 알고리즘으로 전환합니다.")
     sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
-    cliff_idx = -1
-    max_drop = -1.0
-    search_start = 15
-    search_end = 35
+    # 상위 20개 추출
+    elite_20 = [num for num, score in sorted_scores[:20]]
+    elite_20_int = [int(n) for n in elite_20]
 
-    for i in range(search_start, search_end):
-        current_score = sorted_scores[i][1]
-        next_score = sorted_scores[i+1][1]
-        drop = current_score - next_score
-
-        if drop > max_drop:
-            max_drop = drop
-            cliff_idx = i
-
-    elite_group_tuples = sorted_scores[:cliff_idx+1]
-    elite_group = [num for num, score in elite_group_tuples]
-    excluded_group = [num for num, score in sorted_scores[cliff_idx+1:]]
-
-    print(f"📉 확률의 절벽 발견: Rank {cliff_idx+1} (점수 낙폭: {max_drop:.2f})")
-    print(f"🚫 제외된 번호 ({len(excluded_group)}개): {excluded_group}")
-    print(f"💎 정예 번호 ({len(elite_group)}개): {elite_group[:10]}...")
+    print(f"💎 추출된 정예 20수: {elite_20_int}")
 
     final_games = []
-    # [Phase 1] 보험용
-    all_nums = list(range(1, 46))
-    random.shuffle(all_nums)
-    chunks = [all_nums[i:i + 6] for i in range(0, len(all_nums), 6)]
-
-    for chunk in chunks:
-        chunk = [int(n) for n in chunk] # Ensure int
-        if len(chunk) == 6:
-            final_games.append(sorted(chunk))
-        else:
-            remainder = set(chunk)
-            needed = 6 - len(remainder)
-            fillers = []
-            for num in elite_group:
-                if num not in remainder:
-                    fillers.append(int(num))
-                if len(fillers) == needed:
-                    break
-            final_games.append(sorted(list(remainder) + fillers))
-
-    # [Phase 2] 정예용
     attempts = 0
-    max_attempts = 1000
-    while len(final_games) < 15 and attempts < max_attempts:
+    # 지능형 분산 배치 (단순화: 랜덤 조합하되 중복 최소화 노력)
+    while len(final_games) < 10 and attempts < 1000:
         attempts += 1
-        weights = [scores[n] for n in elite_group]
+        # 가중치 기반 선택 (상위권 번호 더 자주)
+        weights = [scores[n] for n in elite_20_int]
         selected = []
+        temp_pool = elite_20_int[:]
         temp_weights = weights[:]
-        temp_pool = elite_group[:]
 
         while len(selected) < 6:
-            if sum(temp_weights) == 0:
-                 pick = random.choice(temp_pool)
-            else:
-                 pick = random.choices(temp_pool, weights=temp_weights, k=1)[0]
-            if pick not in selected:
-                selected.append(int(pick))
+             pick = random.choices(temp_pool, weights=temp_weights, k=1)[0]
+             if pick not in selected:
+                 selected.append(pick)
+
         new_game = sorted(selected)
         if new_game not in final_games:
             final_games.append(new_game)
 
-    while len(final_games) < 15:
-        final_games.append(final_games[-1])
+    while len(final_games) < 10:
+        final_games.append(final_games[-1] if final_games else [1,2,3,4,5,6])
 
-    default_summary = f"📉 확률 절벽: Rank {cliff_idx+1} | 🚫 제외: {len(excluded_group)}수 | 💎 정예 집중 모드 (Fallback Algorithm)"
-    return final_games, len(excluded_group), cliff_idx + 1, default_summary
+    fallback_summary = "📉 Gemini 응답 실패 | 💎 자체 Elite-20 알고리즘 가동 | 상위 20수 기반 지능형 조합"
+    return final_games, 20, fallback_summary
 
 # ==========================================
-# [7] 리포트 작성 (셀 병합 시각화 업데이트)
+# [7] 리포트 작성 (셀 병합 및 10게임 기록)
 # ==========================================
-def update_report(games, excluded_count, cliff_rank, strategy_summary):
-    """구글 시트에 15게임 및 분석 정보 작성 (병합 적용)"""
+def update_report(games, elite_count, strategy_summary):
+    """구글 시트에 10게임 및 분석 정보 작성 (병합 적용)"""
     sheet = connect_jules()
     if not sheet: return
 
@@ -400,11 +371,11 @@ def update_report(games, excluded_count, cliff_rank, strategy_summary):
 
     ws.clear()
 
-    # 데이터 준비 (35행 x 7열) - 요약 공간 확보
-    data = [['' for _ in range(7)] for _ in range(35)]
+    # 데이터 준비 (30행 x 7열)
+    data = [['' for _ in range(7)] for _ in range(30)]
 
     # 타이틀
-    data[0][0] = f"💰 [AI 자율 필터링] 15게임 최종 리포트 ({now})"
+    data[0][0] = f"💰 [Elite-20 Sniper] 10게임 최종 리포트 ({now})"
 
     # 전략 요약 (헤더 및 내용)
     data[1][0] = "🧠 이번 주 제미나이(Gemini) 전략 요약"
@@ -422,7 +393,7 @@ def update_report(games, excluded_count, cliff_rank, strategy_summary):
         for j, num in enumerate(game):
             data[row_idx][j+1] = int(num) # Python int 변환 필수
 
-    # 업데이트 (Named Arguments 사용)
+    # 업데이트
     try:
         ws.update(range_name='A1', values=data)
     except Exception as e:
@@ -440,7 +411,7 @@ def update_report(games, excluded_count, cliff_rank, strategy_summary):
     except Exception as e:
         print(f"⚠️ 셀 병합 중 경고: {e}")
 
-    print(f"✅ [리포트] 15게임 작성 및 셀 병합 완료.")
+    print(f"✅ [리포트] 10게임 작성 및 셀 병합 완료.")
 
 # ==========================================
 # [8] 메인 실행부
@@ -452,19 +423,17 @@ if __name__ == "__main__":
         # 2. 학습 및 예측 (앙상블)
         raw_predictions = run_pipeline(df)
 
-        # 3. AI 분석 및 게임 생성 (Gemini 통합)
-        final_games, excluded_cnt, cliff_rank, strategy_summary = analyze_and_generate(raw_predictions, df)
+        # 3. AI 분석 및 게임 생성 (Elite-20 Sniper)
+        final_games, elite_cnt, strategy_summary = analyze_and_generate(raw_predictions, df)
 
         # 4. 결과 출력
-        print(f"\n🎲 최종 생성된 15게임:")
+        print(f"\n🎲 최종 생성된 10게임 (Elite-20 Sniper Mode):")
         print(f"📝 전략 요약: {strategy_summary}\n")
         for idx, game in enumerate(final_games):
-            tag = "[보험]" if idx < 8 else "[정예]"
-            if excluded_cnt == 0: tag = "[AI추천]"
-            print(f"  Game {idx+1} {tag}: {game}")
+            print(f"  Game {idx+1}: {game}")
 
         # 5. 리포트 전송
-        update_report(final_games, excluded_cnt, cliff_rank, strategy_summary)
+        update_report(final_games, elite_cnt, strategy_summary)
 
     print("\n" + "="*50)
     print("🎉 모든 작업이 완료되었습니다.")
