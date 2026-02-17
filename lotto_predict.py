@@ -1,8 +1,7 @@
 import gspread
 from google.oauth2.service_account import Credentials
-import pandas as pd
 import datetime
-import os
+import time
 
 # ==========================================
 # [1] 줄스(Google Sheets) 접속 설정
@@ -23,9 +22,8 @@ def connect_jules():
         creds = Credentials.from_service_account_file(json_path, scopes=scopes)
         client = gspread.authorize(creds)
         
-        # '줄스' 시트 열기 (구글 시트 제목: "로또_AI_자율주행_리포트")
-        # 실제 시트 제목이 다르다면 아래 이름을 시트 제목과 똑같이 맞춰주세요.
-        spreadsheet = client.open("로또_AI_자율주행_리포트") 
+        # '줄스' 시트 열기 (구글 시트 제목: "로또 max")
+        spreadsheet = client.open("로또 max")
         return spreadsheet
     except Exception as e:
         print(f"❌ 줄스 연결 실패: {e}")
@@ -41,19 +39,81 @@ def update_jules_report(prediction_data, anomaly_score):
 
     now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
     
-    # 1. '추천번호' 탭 업데이트
+    # ------------------------------------------
+    # (A) [기능 추가] AI 주간 분석 리포트 (새로 작성)
+    # ------------------------------------------
     try:
-        ws_nums = sheet.worksheet("추천번호")
+        # 'AI_분석_리포트' 시트 가져오기 (없으면 생성)
+        try:
+            ws_report = sheet.worksheet("AI_분석_리포트")
+            ws_report.clear() # 기존 내용 삭제 (최신 리포트 갱신)
+        except:
+            ws_report = sheet.add_worksheet(title="AI_분석_리포트", rows=100, cols=20)
+
+        # 리포트 작성 데이터 준비
+        # 1. 제목 (A1:G1 병합)
+        ws_report.update_cell(1, 1, "[AI 9차원 앙상블] 주간 분석 리포트")
+        ws_report.merge_cells('A1:G1')
+
+        # 2. 분석 개요 (A3:G3 병합)
+        ws_report.update_cell(3, 1, "1. 분석 개요")
+        ws_report.merge_cells('A3:G3')
+        ws_report.update_cell(4, 1, f"작성 일시: {now}")
+        ws_report.update_cell(4, 3, "분석 모델: 9차원 LSTM 앙상블") # C열쯤에 배치
+
+        # 3. AI 추천 번호 (A6:G6 병합)
+        ws_report.update_cell(6, 1, "2. AI 추천 번호")
+        ws_report.merge_cells('A6:G6')
+
+        # 번호 입력 (A7~G7: 7개 숫자)
+        # prediction_data는 [번호1, 번호2, ..., 번호6, 보너스] 형태라고 가정
+        for i, num in enumerate(prediction_data):
+            # A7(1,1) -> G7(1,7)
+            ws_report.update_cell(7, i+1, num)
+
+        # 4. 조작 의심 지수 (A9:G9 병합)
+        ws_report.update_cell(9, 1, "3. 조작 의심 지수")
+        ws_report.merge_cells('A9:G9')
+        ws_report.update_cell(10, 1, f"{anomaly_score}%")
+
+        # 5. 시스템 로그 (A12:G12 병합)
+        ws_report.update_cell(12, 1, "4. 시스템 로그")
+        ws_report.merge_cells('A12:G12')
+        ws_report.update_cell(13, 1, "M5 9차원 앙상블 완료")
+        ws_report.update_cell(13, 3, "자율 주행 성공")
+
+        print(f"✅ [리포트] 'AI_분석_리포트' 작성 및 병합 완료 ({now})")
+
+    except Exception as e:
+        print(f"⚠️ 리포트 작성 중 오류: {e}")
+
+    # ------------------------------------------
+    # (B) 히스토리 로그 저장 (기존 '추천번호' 시트)
+    # ------------------------------------------
+    try:
+        try:
+            ws_nums = sheet.worksheet("추천번호")
+        except:
+            ws_nums = sheet.add_worksheet(title="추천번호", rows=1000, cols=20)
+            # 헤더 추가
+            ws_nums.append_row(["시간", "번호1", "번호2", "번호3", "번호4", "번호5", "번호6", "보너스", "조작의심지수"])
+
         # 저장할 데이터 배열: [시간, 번호1, 번호2, 번호3, 번호4, 번호5, 번호6, 보너스, 조작의심지수]
         row_data = [now] + prediction_data + [f"{anomaly_score}%"]
         ws_nums.append_row(row_data)
-        print(f"✅ [추천번호] 줄스에 기록 완료 ({now})")
+        print(f"✅ [히스토리] '추천번호'에 기록 완료")
     except Exception as e:
         print(f"⚠️ 추천번호 시트 기록 중 오류: {e}")
 
-    # 2. '실행로그' 탭 업데이트
+    # ------------------------------------------
+    # (C) 실행로그 (선택 사항)
+    # ------------------------------------------
     try:
-        ws_log = sheet.worksheet("실행로그")
+        try:
+            ws_log = sheet.worksheet("실행로그")
+        except:
+            ws_log = sheet.add_worksheet(title="실행로그", rows=1000, cols=10)
+
         ws_log.append_row([now, "자율 주행 성공", "M5 9차원 앙상블 완료"])
     except:
         pass
