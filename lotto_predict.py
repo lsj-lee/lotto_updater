@@ -674,7 +674,108 @@ def update_report(games, elite_count, strategy_summary, rd_insight):
     print(f"✅ [리포트] 10게임 및 R&D 제안 작성 완료.")
 
 # ==========================================
-# [8] 메인 실행부
+# [8] AI 진화 제안 생성 (신규 추가)
+# ==========================================
+def generate_evolution_proposal(api_keys):
+    """
+    현재 코드를 분석하고 TabNet, cGAN, PPO 등을 적용한 차세대 버전을 제안합니다.
+    """
+    print("\n" + "="*50)
+    print("🧬 [Evolution System] 차세대 코드 진화 프로세스 시작...")
+
+    if not api_keys:
+        print("⚠️ API 키가 없어 진화를 수행할 수 없습니다.")
+        return
+
+    # 현재 코드 읽기
+    try:
+        with open(__file__, "r", encoding="utf-8") as f:
+            current_code = f.read()
+    except Exception as e:
+        print(f"⚠️ 현재 코드를 읽을 수 없습니다: {e}")
+        return
+
+    # 프롬프트 구성
+    prompt = f"""
+    당신은 세계 최고의 AI 아키텍트이자 파이썬 전문가입니다.
+    현재 실행 중인 로또 예측 시스템('lotto_predict.py')의 전체 코드를 분석하고,
+    다음 단계로 진화시킨 '완전한 실행 가능한 파이썬 스크립트'를 작성하십시오.
+
+    [진화 목표]
+    아래 기술 중 하나를 선택하여 심도 있게 구현하십시오 (TabNet, cGAN 개선, PPO 강화 중 택 1).
+    1. **TabNet (Tabular-Insight 강화):** 기존 FeatureAttention을 더 정교한 TabNet 구조(Attentive Transformer, Feature Transformer)로 업그레이드.
+    2. **cGAN (Data Augmentation 고도화):** Generator/Discriminator 구조를 개선하거나 WGAN-GP 등을 도입하여 학습 안정성 확보.
+    3. **PPO (Reinforcement Learning):** 단순 가중치 조정을 넘어, 강화학습 에이전트가 하이퍼파라미터나 모델 선택을 수행하도록 개선.
+
+    [필수 요구사항]
+    1. **기존 기능 완벽 유지:**
+       - Apple Silicon (M5) mps 가속 지원 필수 (`torch.device("mps")`).
+       - 구글 시트 연동 (gspread), 8단계 시야, Gap 분석 등 기존 로직 유지.
+       - .env 환경 변수 로드 및 API 키 처리 로직 유지.
+    2. **전체 코드 생성:** 부분 수정이 아닌, 'import'부터 'if __name__'까지 전체 코드를 출력해야 합니다.
+    3. **제안서 헤더 (Docstring) 필수:** 코드 최상단에 아래 형식을 반드시 포함하십시오.
+       \"\"\"
+       [Evolution Proposal]
+       - Key Change: <핵심 변경 사항 1줄 요약>
+       - Expected Benefit: <기대 효과 1줄 요약>
+       - Technical Details: <적용된 기술에 대한 상세 설명>
+       \"\"\"
+
+    [출력 형식]
+    - 마크다운(```python ... ```) 없이 순수 파이썬 코드만 출력하거나, 마크다운이 있다면 파싱 가능한 형태로 제공하십시오.
+
+    [현재 코드 컨텍스트]
+    {current_code}
+    """
+
+    models = ["gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash"]
+    generated_code = None
+    selected_model = ""
+
+    for model_name in models:
+        print(f"🔍 [{model_name}] 진화 모델 시도 중...")
+        for key in api_keys:
+            try:
+                client = genai.Client(api_key=key)
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt
+                )
+
+                text_content = response.text
+                if "```python" in text_content:
+                    generated_code = text_content.split("```python")[1].split("```")[0].strip()
+                elif "```" in text_content:
+                    generated_code = text_content.split("```")[1].split("```")[0].strip()
+                else:
+                    generated_code = text_content.strip()
+
+                if generated_code and "import" in generated_code and "if __name__" in generated_code:
+                    selected_model = model_name
+                    break
+            except Exception as e:
+                continue
+        if generated_code:
+            break
+
+    if not generated_code:
+        print("⚠️ 진화된 코드를 생성하지 못했습니다.")
+        return
+
+    # 저장
+    os.makedirs("proposals", exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"proposals/{timestamp}_proposal.py"
+
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(generated_code)
+
+    print(f"✨ [진화 완료] 새로운 제안서가 도착했습니다: {filename} (Model: {selected_model})")
+    print("="*50)
+
+
+# ==========================================
+# [9] 메인 실행부
 # ==========================================
 if __name__ == "__main__":
     df = load_data()
@@ -694,6 +795,9 @@ if __name__ == "__main__":
 
         # 리포트 전송
         update_report(final_games, elite_cnt, strategy_summary, rd_insight)
+
+        # [NEW] 진화 프로세스 실행
+        generate_evolution_proposal(API_KEYS)
 
     print("\n" + "="*50)
     print("🎉 모든 작업이 완료되었습니다.")
