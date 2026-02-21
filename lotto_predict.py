@@ -633,6 +633,11 @@ def update_report(games, elite_count, strategy_summary, rd_insight):
 
     ws.clear()
 
+    try:
+        ws.unmerge_cells('A1:G50')
+    except Exception as e:
+        print(f"⚠️ 병합 해제 중 경고 (무시 가능): {e}")
+
     # 데이터 준비
     data = [['' for _ in range(7)] for _ in range(50)]
 
@@ -728,7 +733,7 @@ def generate_evolution_proposal(api_keys):
     {current_code}
     """
 
-    models = ["gemini-2.0-flash-exp", "gemini-1.5-pro", "gemini-1.5-flash"]
+    models = ["gemini-3-flash-preview", "gemini-2.0-flash-exp", "gemini-1.5-pro"]
     generated_code = None
     selected_model = ""
 
@@ -753,7 +758,10 @@ def generate_evolution_proposal(api_keys):
                 if generated_code and "import" in generated_code and "if __name__" in generated_code:
                     selected_model = model_name
                     break
+                else:
+                    print(f"⚠️ 생성된 코드 검증 실패 ({model_name}): import 또는 if __name__ 구문 누락")
             except Exception as e:
+                print(f"⚠️ 에러 발생 ({model_name}): {e}")
                 continue
         if generated_code:
             break
