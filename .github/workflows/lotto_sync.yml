@@ -28,5 +28,5 @@ jobs:
           # JSON 파일을 환경 변수로 받아서 임시 파일로 만드는 과정이 필요함
           GOOGLE_CREDS_JSON: ${{ secrets.GOOGLE_CREDS_JSON }}
         run: |
-          echo "$GOOGLE_CREDS_JSON" > creds.json
+          echo "$GOOGLE_CREDS_JSON" > creds_lotto.json
           python lotto_updater.py
