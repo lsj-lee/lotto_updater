@@ -20,7 +20,7 @@
 ### `.github/workflows/lotto_sync.yml` (자동 실행 설정)
 - **역할**: GitHub Actions에서 정해진 시간에 `lotto_updater.py`를 실행하도록 스케줄링합니다.
 - **설정**:
-  - Cron 스케줄: 매일 한국 시간 09:00 ~ 23:00 사이 매 시간 실행 (`0 0-14 * * *` UTC)
+  - Cron 스케줄: 매주 일요일 새벽 4시 (KST) 실행 (`0 19 * * 6` UTC)
   - 환경 변수: `GEMINI_API_KEY`, `GOOGLE_CREDS_JSON` Secrets 사용
 
 ### `schedule_config.json` (사용자 설정)

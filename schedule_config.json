@@ -1,7 +1,7 @@
 {
     "description": "Hybrid Sniper V5 자동 실행 스케줄 설정",
     "active_days": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-    "active_hours": [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+    "active_hours": [4, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
     "timezone": "Asia/Seoul",
     "force_run": false
 }

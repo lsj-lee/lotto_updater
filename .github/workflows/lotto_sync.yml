@@ -2,9 +2,9 @@ name: Lotto Data Sync
 
 on:
   schedule:
-    # 매일 한국 시간 오전 9시 ~ 오후 11시 사이에 1시간마다 실행
-    # UTC 기준: 0시 ~ 14시
-    - cron: '0 0-14 * * *'
+    # 매주 일요일 새벽 4시 (KST) 실행
+    # UTC 기준: 토요일 19시
+    - cron: '0 19 * * 6'
   workflow_dispatch: # 수동 실행 가능
 
 jobs:
