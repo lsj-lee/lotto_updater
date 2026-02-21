@@ -13,7 +13,7 @@ def update_latest_lotto():
 
     # 2. 마지막 회차 확인
     records = sheet1.get_all_values()
-    last_draw_no = int(records[1][0]) # B열(회차) 확인
+    last_draw_no = int(str(records[1][0]).replace(',', '')) # B열(회차) 확인
     next_draw_no = last_draw_no + 1
 
     # 3. 동행복권 API 호출 (당첨자 수 및 금액 포함)
