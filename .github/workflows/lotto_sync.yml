@@ -20,7 +20,7 @@ jobs:
 
       - name: 라이브러리 설치
         run: |
-          pip install google-genai gspread oauth2client python-dotenv
+          pip install google-genai gspread oauth2client python-dotenv requests beautifulsoup4
 
       - name: 스크립트 실행
         env:
