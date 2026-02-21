@@ -1,5 +1,6 @@
 # [보안] 구글 키 및 비밀 설정
 *.json
+!schedule_config.json
 *.env
 creds lotto.json
 
