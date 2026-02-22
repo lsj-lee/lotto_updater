@@ -55,7 +55,7 @@ Gemini 1.5 Flash AI를 활용하여 웹상의 비정형 데이터를 정형 데�
 
 ## ⚠️ 기술 규격 및 주의사항
 - **환경**: Python 3.10+
-- **필수 라이브러리**: `google-generativeai`, `gspread`, `oauth2client`, `beautifulsoup4`, `requests`, `python-dotenv`
+- **필수 라이브러리**: `google-genai` (New SDK), `gspread`, `oauth2client`, `beautifulsoup4`, `requests`, `python-dotenv`
 - **인증**: GitHub Secrets에 `GOOGLE_CREDS_JSON`과 `GEMINI_API_KEY`가 설정되어 있어야 합니다.
 
 <br>
