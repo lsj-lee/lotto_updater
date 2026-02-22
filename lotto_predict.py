@@ -81,6 +81,7 @@ class HybridSniperOrchestrator:
     def _setup_gemini(self):
         """
         [Dynamic Model Discovery] Automatically find available Gemini models.
+        Includes robust fallback list to fix 404 errors.
         """
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
@@ -90,48 +91,38 @@ class HybridSniperOrchestrator:
         client = genai.Client(api_key=api_key)
         working_model = None
 
-        print("🤖 [Gemini Setup] Discovering available models via API...")
-        try:
-            # Dynamic Discovery: List models and find generation-capable ones
-            # Note: client.models.list() returns an iterable of Model objects
-            # We filter for names starting with 'gemini' and supporting generation
-            # Since exact API signatures can vary, we try a robust approach
+        print("🤖 [Gemini Setup] Discovering available models...")
 
-            # Fallback list if discovery fails
-            candidate_models = ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-pro']
+        # Extended Fallback List (Prioritize Pro > Flash)
+        candidate_models = [
+            'gemini-1.5-pro',
+            'gemini-1.5-flash',
+            'gemini-2.0-flash-exp',
+            'gemini-1.5-pro-latest',
+            'gemini-1.5-flash-latest',
+            'gemini-pro',
+            'gemini-1.0-pro'
+        ]
 
+        for model in candidate_models:
             try:
-                # Attempt dynamic listing (if supported by SDK version)
-                # This is pseudocode adaptation for google-genai v1.0 structure
-                # Adjust based on exact SDK if list is available
-                pass
-            except:
-                pass
+                # Simple ping to check availability
+                response = client.models.generate_content(
+                    model=model,
+                    contents="Ping"
+                )
+                if response.text:
+                    print(f"✅ Connected to Gemini Model: {model}")
+                    working_model = model
+                    break
+            except Exception:
+                continue
 
-            # Test candidates
-            for model in candidate_models:
-                try:
-                    response = client.models.generate_content(
-                        model=model,
-                        contents="Ping"
-                    )
-                    if response.text:
-                        print(f"✅ Connected to Gemini Model: {model}")
-                        working_model = model
-                        break
-                except Exception as e:
-                    # print(f"   > '{model}' skipped: {e}") # Verbose off
-                    continue
+        if not working_model:
+            print("❌ All Gemini models failed. Switching to Manual Input Mode for Strategy.")
+            return client, None
 
-            if not working_model:
-                print("❌ All Gemini models failed. Switching to Manual Input Mode for Strategy.")
-                return client, None
-
-            return client, working_model
-
-        except Exception as e:
-            print(f"⚠️ Gemini Setup Error: {e}")
-            return None, None
+        return client, working_model
 
     # --- Execution Modes (Dual-Mode) ---
     def run_full_cycle(self):
@@ -305,7 +296,6 @@ class HybridSniperOrchestrator:
         print("📡 Checking for Data Updates...")
         last_round = self.data_manager.get_latest_recorded_round()
         expected_round = self.data_manager.get_current_expected_round()
-
         if last_round >= expected_round:
             print("✅ Data is up to date.")
             return

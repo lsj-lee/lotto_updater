@@ -73,7 +73,7 @@ Gemini 1.5 Flash AI를 활용하여 웹상의 비정형 데이터를 정형 데�
 ### 1. Manual Mode (매뉴얼 모드 - Full Cycle)
 -   **명령어**: `python lotto_predict.py`
 -   **설명**: 사령관님의 직접 명령으로 간주하여, **[데이터 수집 -> 통합 분석(ML+DL) -> 최종 저격]** 전 과정을 논스톱으로 수행합니다.
--   **특징**: 단계별로 충분한 **하드웨어 쿨링 타임(5~10초)**이 자동으로 적용됩니다.
+-   **안전장치**: 데이터 수집 3회 실패 시 자동 중단 및 단계별 **하드웨어 쿨링 타임(5~10초)**이 적용됩니다.
 
 ### 2. Scheduled Mode (스케줄 모드 - Distributed)
 -   **명령어**: `python lotto_predict.py --scheduled`
@@ -85,27 +85,20 @@ Gemini 1.5 Flash AI를 활용하여 웹상의 비정형 데이터를 정형 데�
 ## 🧠 AI Taxonomy & Architecture (기술 체계)
 
 ### 1. 지도 학습 (Supervised Learning)
--   **역할**: 과거 데이터를 정답지(Label)로 삼아 미래를 예측합니다.
--   **구성**:
-    -   **분류(Classification)**: RandomForest, XGBoost 등이 "이 번호가 나올 확률이 높은가?"를 판단합니다.
-    -   **특징 추출(Feature Extraction)**: LSTM, CNN (Deep Learning) 모델이 시계열 데이터의 숨겨진 특징을 **인코더-디코더(Encoder-Decoder)** 구조로 추출합니다.
+-   **분류(Classification)**: RandomForest, XGBoost, CatBoost 등의 앙상블 모델이 당첨 확률을 예측합니다.
+-   **회귀(Regression)**: 시계열 데이터의 추세를 분석합니다.
+-   **인코더-디코더(Encoder-Decoder)**: LSTM, CNN 모델이 데이터의 시간적 특징을 추출하고 재구성합니다.
 
 ### 2. 비지도 학습 (Unsupervised Learning)
--   **역할**: 정답 없이 데이터 자체의 패턴을 발견합니다.
--   **구성**:
-    -   **군집화(Clustering)**: KMeans 알고리즘이 최근 당첨 번호들의 패턴을 그룹화하여 현재 흐름이 어떤 유형인지 파악합니다.
-    -   **차원 축소(Dimensionality Reduction)**: PCA 기법을 사용하여 복잡한 고차원 데이터의 핵심 특징만 요약합니다.
+-   **군집화(Clustering)**: KMeans 알고리즘이 최근 당첨 번호들의 패턴을 그룹화합니다.
+-   **차원 축소(Dimensionality Reduction)**: PCA 기법을 사용하여 복잡한 고차원 데이터의 핵심 특징을 시각화 가능한 수준으로 압축하여 분석합니다.
 
 ### 3. 강화 학습 (Reinforcement Learning)
--   **역할**: 예측 결과에 대한 보상(Reward)을 통해 모델을 진화시킵니다.
--   **구성**:
-    -   **PPO 가중치**: 최근 5회차 성적을 바탕으로, 잘 맞춘 모델에게 더 높은 발언권(가중치)을 부여하는 보상 체계를 적용합니다.
+-   **PPO 가중치**: 예측 결과에 대한 보상(Reward)을 기반으로 성과가 좋은 모델에게 더 높은 가중치를 부여하는 최적화 과정을 수행합니다.
 
 ### 4. 생성형 AI (Generative AI)
--   **역할**: 수치 데이터를 기반으로 인간 수준의 전략적 판단을 내립니다.
--   **구성**:
-    -   **LLM 필터링**: Gemini 1.5 Pro (또는 가용한 모델)가 유전 알고리즘이 만든 후보군을 검토하고, 최종 10개 조합을 생성합니다.
-    -   **Dynamic Discovery**: API 연결 시 사용 가능한 모델(Pro/Flash)을 자동으로 탐색하여 연결합니다.
+-   **LLM 필터링**: Gemini 1.5 Pro (또는 가용한 최적 모델)가 유전 알고리즘이 만든 후보군을 검토하고, 최종 10개 조합을 생성합니다.
+-   **Dynamic Discovery**: API 연결 시 사용 가능한 모델(Pro/Flash)을 자동으로 탐색하여 연결합니다.
 
 ---
 
