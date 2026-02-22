@@ -38,8 +38,8 @@ BATCH_SIZE = 32
 EPOCHS_MAIN = 200
 EPOCHS_CGAN = 100
 LEARNING_RATE = 0.001
-SEQ_SCALES = [10, 50, 100, 200, 300, 500, 700, 900] # Full 8 Scales (Adjusted for <1000 rounds)
-MAX_SEQ_LEN = 900
+SEQ_SCALES = [10, 50, 100, 200, 300, 500, 700, 1000] # Full 8 Scales (Restored)
+MAX_SEQ_LEN = 1000 # Restored to 1000
 FEATURE_DIM_LOGIC = 3 # Sum, Odd/Even, AC Index
 
 # --- Helper Functions ---
@@ -86,8 +86,10 @@ class LottoDataManager:
             for r in rows:
                 if not r[0]: continue
                 try:
-                    nums = [int(r[i]) for i in range(2, 8)]
-                    round_no = int(r[0])
+                    # [Comma Trap Fix] Remove commas before int conversion
+                    # [Index Fix] Numbers are in cols B-G (Index 1-6)
+                    nums = [int(r[i].replace(',', '')) for i in range(1, 7)]
+                    round_no = int(r[0].replace(',', ''))
                     parsed_data.append({'round': round_no, 'nums': nums})
                 except ValueError:
                     continue
@@ -126,8 +128,7 @@ class LottoDataManager:
             # Target
             target = self.numbers[i]
             target_vec = np.zeros(46)
-            target_vec[target] = 1.0 # Multi-hot encoding? Or use single label for cGAN?
-            # For multi-label prediction, y is (46,).
+            target_vec[target] = 1.0
             y.append(target_vec)
 
             # Time Input (Last 1000 rounds)
@@ -145,7 +146,6 @@ class LottoDataManager:
 class LottoGenerator(nn.Module):
     def __init__(self, latent_dim, num_classes, output_dim):
         super(LottoGenerator, self).__init__()
-        # Condition on target (class/features). Here condition on y (46-dim multi-hot)
         self.label_emb = nn.Linear(num_classes, 16)
 
         self.model = nn.Sequential(
@@ -160,7 +160,6 @@ class LottoGenerator(nn.Module):
         )
 
     def forward(self, z, labels):
-        # z: (Batch, Latent), labels: (Batch, 46)
         c = self.label_emb(labels)
         x = torch.cat([z, c], 1)
         return self.model(x)
@@ -193,26 +192,14 @@ class TimeBranch(nn.Module):
         self.lstm = nn.LSTM(16*6, 64, batch_first=True)
 
     def forward(self, x):
-        # x: (Batch, 1000, 6)
         batch_size = x.size(0)
-
-        # 8-Scale Processing
         outputs = []
         for scale in SEQ_SCALES:
-            # Slice the sequence for this scale
-            sub_seq = x[:, -scale:, :] # (Batch, Scale, 6)
-
-            # Embed
-            sub_emb = self.embedding(sub_seq).view(batch_size, scale, -1) # (Batch, Scale, 16*6)
-
-            # Process with LSTM (Shared weights across scales)
-            # Efficient implementation: We could pack sequences or run sequentially.
-            # Running sequentially is fine for 8 scales.
-            _, (h_n, _) = self.lstm(sub_emb) # h_n: (1, Batch, 64)
-            outputs.append(h_n[-1]) # (Batch, 64)
-
-        # Concatenate outputs from all scales
-        combined = torch.cat(outputs, dim=1) # (Batch, 64 * 8)
+            sub_seq = x[:, -scale:, :]
+            sub_emb = self.embedding(sub_seq).view(batch_size, scale, -1)
+            _, (h_n, _) = self.lstm(sub_emb)
+            outputs.append(h_n[-1])
+        combined = torch.cat(outputs, dim=1)
         return combined
 
 class LogicBranch(nn.Module):
@@ -248,18 +235,14 @@ class HybridSniperV5(nn.Module):
         super(HybridSniperV5, self).__init__()
         self.adj_matrix = adj_matrix
 
-        # Branch A: Time (Multi-Scale LSTM)
         self.time_branch = TimeBranch()
-        self.time_fc = nn.Linear(64 * len(SEQ_SCALES), 128) # Compress 8 scales
+        self.time_fc = nn.Linear(64 * len(SEQ_SCALES), 128)
 
-        # Branch B: Logic (TabNet)
         self.logic_branch = LogicBranch(FEATURE_DIM_LOGIC, 32)
 
-        # Branch C: Relation (GNN)
         self.node_emb = nn.Embedding(46, 16)
         self.relation_branch = RelationBranch(46, 16, 32)
 
-        # Decision Head
         self.fc1 = nn.Linear(128 + 32 + 32, 256)
         self.fc2 = nn.Linear(256, 46)
         self.sigmoid = nn.Sigmoid()
@@ -267,23 +250,18 @@ class HybridSniperV5(nn.Module):
     def forward(self, x_time, x_logic):
         batch_size = x_time.size(0)
 
-        # A. Time
-        time_feats = self.time_branch(x_time) # (Batch, 512)
-        time_out = torch.relu(self.time_fc(time_feats)) # (Batch, 128)
+        time_feats = self.time_branch(x_time)
+        time_out = torch.relu(self.time_fc(time_feats))
 
-        # B. Logic
-        logic_out = self.logic_branch(x_logic) # (Batch, 32)
+        logic_out = self.logic_branch(x_logic)
 
-        # C. Relation
         nodes = torch.arange(46, device=DEVICE).unsqueeze(0).repeat(batch_size, 1)
         node_feats = self.node_emb(nodes)
         rel_out = self.relation_branch(self.adj_matrix, node_feats)
         rel_pool = rel_out.mean(dim=1)
 
-        # Concatenate
         combined = torch.cat([time_out, logic_out, rel_pool], dim=1)
 
-        # Decision
         hidden = torch.relu(self.fc1(combined))
         out = self.fc2(hidden)
         return self.sigmoid(out)
@@ -305,7 +283,6 @@ class LottoTrainer:
         self.adj_matrix = adj_matrix
         self.criterion = nn.BCELoss()
         self.optimizer = optim.Adam(self.model.parameters(), lr=LEARNING_RATE)
-        # MPS Scaler support is tricky, relying on auto-casting or default behavior
         self.scaler = torch.cuda.amp.GradScaler() if DEVICE.type == 'cuda' else None
 
     def train_cgan_augmentation(self):
@@ -324,7 +301,6 @@ class LottoTrainer:
                 real_logic, real_labels = real_logic.to(DEVICE), real_labels.to(DEVICE)
                 batch = real_logic.size(0)
 
-                # Discriminator
                 d_optimizer.zero_grad()
                 d_out_real = discriminator(real_logic, real_labels)
                 d_loss_real = criterion(d_out_real, torch.ones_like(d_out_real))
@@ -338,7 +314,6 @@ class LottoTrainer:
                 d_loss.backward()
                 d_optimizer.step()
 
-                # Generator
                 g_optimizer.zero_grad()
                 d_out_fake_g = discriminator(fake_logic, real_labels)
                 g_loss = criterion(d_out_fake_g, torch.ones_like(d_out_fake_g))
@@ -347,25 +322,21 @@ class LottoTrainer:
 
         print("✅ cGAN Training Complete. Generating Augmentation Data...")
 
-        # Augment Dataset
         aug_X_time = []
         aug_X_logic = []
         aug_y = []
 
-        # Expand 10x (1 Real + 9 Synthetic)
+        # Expand 10x
         all_X_time = self.dataset.X_time
         all_y = self.dataset.y
 
         for _ in range(9):
             for i in range(len(all_y)):
-                # Generate fake logic for existing target
                 target = all_y[i].unsqueeze(0).to(DEVICE)
                 z = torch.randn(1, 10).to(DEVICE)
                 fake_logic = generator(z, target).detach().cpu()
 
-                # Reuse real time sequence (maybe add noise?)
                 real_time = all_X_time[i].clone()
-                # Simple noise injection to time sequence (randomly change 1 number)
                 if random.random() < 0.3:
                     idx = random.randint(0, MAX_SEQ_LEN-1)
                     real_time[idx][random.randint(0, 5)] = random.randint(1, 45)
@@ -374,7 +345,6 @@ class LottoTrainer:
                 aug_X_logic.append(fake_logic.squeeze(0))
                 aug_y.append(all_y[i])
 
-        # Merge with original dataset
         aug_dataset = LottoDataset(
             torch.cat([self.dataset.X_time, torch.stack(aug_X_time)]),
             torch.cat([self.dataset.X_logic, torch.stack(aug_X_logic)]),
@@ -397,9 +367,6 @@ class LottoTrainer:
 
                 self.optimizer.zero_grad()
 
-                # FP16 / AMP Context
-                # For MPS (Apple Silicon), 'cuda' amp works in some versions, or 'cpu'.
-                # PyTorch 2.x supports device_type='mps' for autocast.
                 if DEVICE.type == 'cuda' or DEVICE.type == 'mps':
                     with torch.amp.autocast(device_type=DEVICE.type, dtype=torch.float16):
                         outputs = self.model(x_time, x_logic)
