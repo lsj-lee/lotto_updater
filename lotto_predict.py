@@ -137,7 +137,7 @@ class HybridSniperOrchestrator:
         state = {
             'val_preds': val_preds_a,
             'next_preds': next_preds_a,
-            'val_targets': [d['nums'] for d in val_data] # Save targets for PPO comparison
+            'val_targets': val_data # Save targets for PPO comparison (val_data is already list of lists)
         }
         joblib.dump(state, STATE_A_FILE)
         print(f"✅ Group A Analysis Saved to {STATE_A_FILE}")
