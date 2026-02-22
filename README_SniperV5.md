@@ -63,50 +63,64 @@ Gemini 1.5 Flash AI를 활용하여 웹상의 비정형 데이터를 정형 데�
 ---
 ---
 
-# 🛰️ Hybrid Sniper V5: 시차형 분산 오케스트레이션 (Distributed Orchestration)
+# 🛰️ Hybrid Sniper V5: 통합 분석 및 AI Taxonomy (Unified Analysis)
 
-이 섹션은 시스템의 **최종 완성형**인 **요일별 분산 처리 엔진**에 대한 설명입니다.
-사용자님의 M5 MacBook 하드웨어를 보호하기 위해 전체 분석 과정을 요일별로 나누어 처리합니다.
+이 섹션은 시스템의 **최종 완성형**인 **통합 분석 엔진과 AI 기술 체계**에 대한 설명입니다.
+사용자님의 M5 MacBook 하드웨어를 보호하기 위해 분석 과정을 효율적으로 통합하고, 사용된 4가지 AI 기술을 명확히 정의합니다.
 
-## 📅 요일별 미션 스케줄 (Weekly Mission)
+## 🧠 AI Taxonomy & Architecture (기술 체계)
+
+### 1. 지도 학습 (Supervised Learning)
+-   **역할**: 과거 데이터를 정답지(Label)로 삼아 미래를 예측합니다.
+-   **구성**:
+    -   **분류(Classification)**: RandomForest, XGBoost 등이 "이 번호가 나올 확률이 높은가?"를 판단합니다.
+    -   **특징 추출(Feature Extraction)**: LSTM, CNN (Deep Learning) 모델이 시계열 데이터의 숨겨진 특징을 인코더-디코더 구조로 추출합니다.
+
+### 2. 비지도 학습 (Unsupervised Learning)
+-   **역할**: 정답 없이 데이터 자체의 패턴을 발견합니다.
+-   **구성**:
+    -   **군집화(Clustering)**: KMeans 알고리즘이 최근 당첨 번호들의 패턴을 그룹화하여 현재 흐름이 어떤 유형인지 파악합니다.
+
+### 3. 강화 학습 (Reinforcement Learning)
+-   **역할**: 예측 결과에 대한 보상(Reward)을 통해 모델을 진화시킵니다.
+-   **구성**:
+    -   **PPO 가중치**: 최근 5회차 성적을 바탕으로, 잘 맞춘 모델에게 더 높은 발언권(가중치)을 부여하는 보상 체계를 적용합니다.
+
+### 4. 생성형 AI (Generative AI)
+-   **역할**: 수치 데이터를 기반으로 인간 수준의 전략적 판단을 내립니다.
+-   **구성**:
+    -   **LLM 필터링**: Gemini 1.5 Pro가 유전 알고리즘이 만든 후보군을 검토하고, 최종 10개 조합을 생성합니다.
+
+---
+
+## 📅 주간 통합 스케줄 (Unified Schedule)
 
 ### 일요일 (Sunday 04:00): Data Sync
--   **임무**: 최신 로또 당첨 결과를 수집하여 구글 시트와 동기화합니다.
--   **부하**: 매우 낮음 (단순 크롤링 및 API 호출)
+-   최신 로또 데이터를 수집하여 동기화합니다.
 
-### 월요일 (Monday 04:00): Analysis Group A (ML)
--   **임무**: **통계 및 머신러닝 모델 8종** (RandomForest, XGBoost, CatBoost, KNN 등)을 학습시킵니다.
--   **결과물**: 학습된 예측 데이터를 `state_A.pkl` 파일로 안전하게 저장합니다.
--   **부하**: 중간 (CPU 집중 연산)
-
-### 화요일 (Tuesday 04:00): Analysis Group B (DL)
--   **임무**: **딥러닝 모델 9종** (LSTM, GRU, CNN 등)을 학습시킵니다.
--   **결과물**: 학습된 예측 데이터를 `state_B.pkl` 파일로 안전하게 저장합니다.
--   **부하**: 높음 (MPS GPU 가속 활용)
+### 월요일 (Monday 04:00): Total Analysis (통합 분석)
+-   **Unsupervised**: 데이터 패턴 군집화 분석.
+-   **Supervised (ML)**: RandomForest, XGBoost, KNN 등 머신러닝 그룹 학습.
+-   **Cooling Pause**: 5초간 하드웨어 냉각.
+-   **Supervised (DL)**: LSTM, CNN 등 딥러닝 그룹 학습.
+-   **Output**: `state_total.pkl` 저장.
 
 ### 수요일 (Wednesday 04:00): Final Strike
--   **임무**:
-    1.  `state_A.pkl`와 `state_B.pkl`을 불러와 **PPO 가중치**를 계산합니다.
-    2.  통합 확률을 기반으로 **유전 알고리즘(500세대)**을 진화시킵니다.
-    3.  최종 후보를 **Gemini 1.5 Pro**가 필터링하여 리포트를 작성합니다.
--   **부하**: 높음 (종합 연산)
+-   **Reinforcement**: PPO 가중치 계산.
+-   **Evolutionary**: 유전 알고리즘(GA) 최적화.
+-   **Generative**: Gemini 1.5 Pro 최종 필터링 및 리포트 작성.
 
 ## 🛡️ 안전 제1수칙 (Safety Protocols)
 
-1.  **자원 제한 (Core Limiting)**: 전체 CPU 코어 중 2개를 시스템용으로 남겨두어, 백그라운드 작업 시에도 맥북이 쾌적하게 유지됩니다.
-2.  **Cooling Pause**: 유전 알고리즘 진화 50세대마다 **1.5초간 휴식**하여 칩셋 발열을 제어합니다.
-3.  **Memory Clean**: 각 요일별 미션이 끝날 때마다 `gc.collect()`와 캐시 삭제를 수행하여 메모리를 초기화합니다.
+1.  **자원 제한**: 전체 CPU 코어 중 2개를 시스템용으로 남겨두어 쾌적함을 유지합니다.
+2.  **Safety Pause**: ML과 DL 분석 사이, 그리고 유전 알고리즘 세대 간에 **휴식 시간(Sleep)**을 두어 M5 칩의 과열을 방지합니다.
+3.  **Memory Clean**: 단계별로 메모리를 강제 회수(GC)하여 안정성을 확보합니다.
 
-## 💻 실행 가이드 (How to Run)
+## 💻 실행 가이드
 
 터미널에서 아래 명령어를 입력하면 **오늘 요일에 맞는 미션**이 자동으로 수행됩니다.
 
 ```bash
 python lotto_predict.py
 ```
-
-> **강제 실행 모드 (테스트용):**
-> 특정 요일의 미션을 강제로 수행하려면 아래와 같이 입력하세요.
-> ```bash
-> python lotto_predict.py --force=Wed
-> ```
+> **Tip**: 월요일에 실행하면 ML과 DL 분석이 한 번에(중간 휴식 포함) 진행됩니다.
