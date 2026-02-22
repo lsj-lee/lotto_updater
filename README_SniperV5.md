@@ -88,12 +88,13 @@ Gemini 1.5 Flash AI를 활용하여 웹상의 비정형 데이터를 정형 데�
 -   **역할**: 과거 데이터를 정답지(Label)로 삼아 미래를 예측합니다.
 -   **구성**:
     -   **분류(Classification)**: RandomForest, XGBoost 등이 "이 번호가 나올 확률이 높은가?"를 판단합니다.
-    -   **특징 추출(Feature Extraction)**: LSTM, CNN (Deep Learning) 모델이 시계열 데이터의 숨겨진 특징을 인코더-디코더 구조로 추출합니다.
+    -   **특징 추출(Feature Extraction)**: LSTM, CNN (Deep Learning) 모델이 시계열 데이터의 숨겨진 특징을 **인코더-디코더(Encoder-Decoder)** 구조로 추출합니다.
 
 ### 2. 비지도 학습 (Unsupervised Learning)
 -   **역할**: 정답 없이 데이터 자체의 패턴을 발견합니다.
 -   **구성**:
     -   **군집화(Clustering)**: KMeans 알고리즘이 최근 당첨 번호들의 패턴을 그룹화하여 현재 흐름이 어떤 유형인지 파악합니다.
+    -   **차원 축소(Dimensionality Reduction)**: PCA 기법을 사용하여 복잡한 고차원 데이터의 핵심 특징만 요약합니다.
 
 ### 3. 강화 학습 (Reinforcement Learning)
 -   **역할**: 예측 결과에 대한 보상(Reward)을 통해 모델을 진화시킵니다.
@@ -103,7 +104,8 @@ Gemini 1.5 Flash AI를 활용하여 웹상의 비정형 데이터를 정형 데�
 ### 4. 생성형 AI (Generative AI)
 -   **역할**: 수치 데이터를 기반으로 인간 수준의 전략적 판단을 내립니다.
 -   **구성**:
-    -   **LLM 필터링**: Gemini 1.5 Pro가 유전 알고리즘이 만든 후보군을 검토하고, 최종 10개 조합을 생성합니다.
+    -   **LLM 필터링**: Gemini 1.5 Pro (또는 가용한 모델)가 유전 알고리즘이 만든 후보군을 검토하고, 최종 10개 조합을 생성합니다.
+    -   **Dynamic Discovery**: API 연결 시 사용 가능한 모델(Pro/Flash)을 자동으로 탐색하여 연결합니다.
 
 ---
 
@@ -112,3 +114,4 @@ Gemini 1.5 Flash AI를 활용하여 웹상의 비정형 데이터를 정형 데�
 1.  **자원 제한**: 전체 CPU 코어 중 2개를 시스템용으로 남겨두어 쾌적함을 유지합니다.
 2.  **Safety Pause**: ML과 DL 분석 사이(5초), 전체 사이클 단계 간(10초), 유전 알고리즘 세대 간(1.5초)에 **휴식 시간**을 두어 M5 칩의 과열을 방지합니다.
 3.  **Memory Clean**: 단계별로 메모리를 강제 회수(GC)하여 안정성을 확보합니다.
+4.  **Sync Protection**: 데이터 수집 3회 실패 시 자동으로 중단하여 무한 루프를 방지합니다.

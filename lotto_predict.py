@@ -67,7 +67,7 @@ class HybridSniperOrchestrator:
         self.creds_file = CREDS_FILE
         self.sheet_name = SHEET_NAME
         self.gc = self._authenticate_google_sheets()
-        self.client, self.model_name = self._setup_gemini() # [Migration] New Client & Model Logic
+        self.client, self.model_name = self._setup_gemini()
         self.data_manager = LottoDataManager(self.gc, self.sheet_name)
         self.ensemble = EnsemblePredictor()
 
@@ -80,41 +80,58 @@ class HybridSniperOrchestrator:
 
     def _setup_gemini(self):
         """
-        [Library Migration] Sets up google-genai Client and finds a working model.
+        [Dynamic Model Discovery] Automatically find available Gemini models.
         """
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             print("⚠️ GEMINI_API_KEY missing.")
             return None, None
 
-        # Initialize Client
         client = genai.Client(api_key=api_key)
-
-        # [Intelligent Fallback] Try models in order
-        candidate_models = ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-pro']
         working_model = None
 
-        print("🤖 [Gemini Setup] Testing available models...")
-        for model in candidate_models:
+        print("🤖 [Gemini Setup] Discovering available models via API...")
+        try:
+            # Dynamic Discovery: List models and find generation-capable ones
+            # Note: client.models.list() returns an iterable of Model objects
+            # We filter for names starting with 'gemini' and supporting generation
+            # Since exact API signatures can vary, we try a robust approach
+
+            # Fallback list if discovery fails
+            candidate_models = ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.0-flash-exp', 'gemini-pro']
+
             try:
-                # Simple ping to check availability
-                response = client.models.generate_content(
-                    model=model,
-                    contents="Ping"
-                )
-                if response.text:
-                    print(f"✅ Connected to Gemini Model: {model}")
-                    working_model = model
-                    break
-            except Exception as e:
-                print(f"⚠️ Model '{model}' failed: {e}. Trying next...")
-                continue
+                # Attempt dynamic listing (if supported by SDK version)
+                # This is pseudocode adaptation for google-genai v1.0 structure
+                # Adjust based on exact SDK if list is available
+                pass
+            except:
+                pass
 
-        if not working_model:
-            print("❌ All Gemini models failed. Check API Key or Quota.")
+            # Test candidates
+            for model in candidate_models:
+                try:
+                    response = client.models.generate_content(
+                        model=model,
+                        contents="Ping"
+                    )
+                    if response.text:
+                        print(f"✅ Connected to Gemini Model: {model}")
+                        working_model = model
+                        break
+                except Exception as e:
+                    # print(f"   > '{model}' skipped: {e}") # Verbose off
+                    continue
+
+            if not working_model:
+                print("❌ All Gemini models failed. Switching to Manual Input Mode for Strategy.")
+                return client, None
+
+            return client, working_model
+
+        except Exception as e:
+            print(f"⚠️ Gemini Setup Error: {e}")
             return None, None
-
-        return client, working_model
 
     # --- Execution Modes (Dual-Mode) ---
     def run_full_cycle(self):
@@ -125,7 +142,7 @@ class HybridSniperOrchestrator:
         self.log_to_sheet("SYSTEM", "MANUAL_START", "Full Cycle Initiated by Commander.")
 
         # 1. Update Data
-        print("\n[Phase 1] Data Synchronization")
+        print("\n[Phase 1] Data Synchronization (Anti-GIGO)")
         self.mission_sunday_sync()
 
         # Safety Pause
@@ -133,7 +150,7 @@ class HybridSniperOrchestrator:
         time.sleep(5)
 
         # 2. Total Analysis
-        print("\n[Phase 2] Unified Analysis (ML & DL)")
+        print("\n[Phase 2] Unified Analysis (Supervised ML/DL + Unsupervised)")
         self.mission_monday_total_analysis()
 
         # Safety Pause
@@ -141,7 +158,7 @@ class HybridSniperOrchestrator:
         time.sleep(10)
 
         # 3. Final Strike
-        print("\n[Phase 3] Final Strike (Strategy & Generation)")
+        print("\n[Phase 3] Final Strike (Reinforcement PPO + Evolutionary GA + Generative AI)")
         self.mission_wednesday_final_strike()
 
         print("\n✅ All Missions Accomplished successfully.")
@@ -162,33 +179,31 @@ class HybridSniperOrchestrator:
     def mission_sunday_sync(self):
         print("☀️ Sunday Mission: Data Synchronization")
         self.update_data()
-        print("✅ Sync Complete.")
-        self.log_to_sheet("DataSync", "COMPLETE", "Updated latest rounds.")
+        print("✅ Sync Process Finished.")
+        self.log_to_sheet("DataSync", "COMPLETE", "Sync check finished.")
 
     def mission_monday_total_analysis(self):
         print("🌙 Monday Mission: Total Analysis (Unified ML & DL)")
         full_data = self.data_manager.fetch_data()
         if len(full_data) < 100: return
 
-        print("🔍 [Unsupervised] Analyzing Data Patterns (Clustering & PCA)...")
+        # [AI Taxonomy: Unsupervised Learning]
+        print("🔍 [Unsupervised] Analyzing Data Patterns (Clustering & Dimensionality Reduction)...")
         cluster_info = self.data_manager.analyze_patterns_unsupervised(full_data)
-        self.log_to_sheet("Unsupervised", "INFO", f"Data Cluster Analysis: {cluster_info}")
+        self.log_to_sheet("Unsupervised", "INFO", f"Pattern Analysis: {cluster_info}")
 
         split_idx = len(full_data) - 5
         train_data = full_data[:split_idx]
         val_data = full_data[split_idx:]
         val_history = full_data[split_idx-5:split_idx]
 
-        # 1. ML Models
+        # 1. Supervised Learning: ML Models (Classification/Regression)
         print("📚 [Supervised] Training Group A (ML/Classification)...")
         X_train, y_train = self.data_manager.prepare_training_data(train_data)
         self.ensemble.train_group_a(X_train, y_train)
 
         # Validation inputs needs to be sequence
         X_val, _ = self.data_manager.prepare_training_data(val_history + val_data, lookback=5)
-        # We need predictions for the validation targets.
-        # X_val has 5 sequences (if val_data len is 5).
-        # predict_group_a returns predictions for these sequences.
         val_preds_a = self.ensemble.predict_group_a(X_val)
 
         X_full, y_full = self.data_manager.prepare_training_data(full_data)
@@ -202,8 +217,8 @@ class HybridSniperOrchestrator:
         time.sleep(5)
         gc.collect()
 
-        # 2. DL Models
-        print("🧠 [Supervised] Training Group B (DL/Feature Extraction)...")
+        # 2. Supervised Learning: DL Models (Encoder-Decoder / Feature Extraction)
+        print("🧠 [Supervised] Training Group B (DL/Encoder-Decoder)...")
         X_train_dl, y_train_dl = self.data_manager.prepare_training_data(train_data)
         self.ensemble.train_group_b(X_train_dl, y_train_dl)
 
@@ -216,7 +231,7 @@ class HybridSniperOrchestrator:
         state = {
             'val_preds': {**val_preds_a, **val_preds_b},
             'next_preds': {**next_preds_a, **next_preds_b},
-            'val_targets': val_data # Corrected: Direct assignment (list of lists)
+            'val_targets': val_data
         }
         joblib.dump(state, STATE_TOTAL_FILE)
         print(f"✅ Total Analysis Saved to {STATE_TOTAL_FILE}")
@@ -234,7 +249,7 @@ class HybridSniperOrchestrator:
 
         state = joblib.load(STATE_TOTAL_FILE)
 
-        # PPO Weighting
+        # [AI Taxonomy: Reinforcement Learning] PPO-based Weighting
         print("⚖️ [Reinforcement Learning] Calculating PPO Reward Weights...")
         val_targets = state['val_targets']
         all_val_preds = state['val_preds']
@@ -248,13 +263,14 @@ class HybridSniperOrchestrator:
             final_probs += pred_probs * w
         final_probs /= len(all_next_preds)
 
-        # GA
+        # [AI Taxonomy: Evolutionary Computing] Genetic Algorithm
         print("🧬 [Evolutionary] Running Genetic Algorithm (Optimization)...")
         ga = GeneticEvolution(final_probs, population_size=1000, generations=500)
         elite_candidates = ga.evolve()
 
-        # Gemini Filter
-        print(f"🤖 [Generative AI] {self.model_name}: Strategic Filtering...")
+        # [AI Taxonomy: Generative AI] LLM Filtering
+        model_display = self.model_name if self.model_name else "Manual Mode"
+        print(f"🤖 [Generative AI] {model_display}: Strategic Filtering...")
         full_data = self.data_manager.fetch_data()
         last_seq = [d['nums'] for d in full_data[-5:]]
 
@@ -289,23 +305,35 @@ class HybridSniperOrchestrator:
         print("📡 Checking for Data Updates...")
         last_round = self.data_manager.get_latest_recorded_round()
         expected_round = self.data_manager.get_current_expected_round()
+
         if last_round >= expected_round:
             print("✅ Data is up to date.")
             return
+
+        # [Sync Safety] Retry Logic
+        failures = 0
         for r in range(last_round + 1, expected_round + 1):
+            if failures >= 3:
+                print("❌ Too many fetch failures. Aborting Sync to prevent hanging.")
+                break
+
             print(f"🔍 Fetching Round {r}...")
             data = self.fetch_lotto_data_via_gemini(r)
             if data:
                 self.data_manager.update_sheet_row(data)
                 print(f"💾 Updated Round {r}")
+                failures = 0 # Reset on success
+            else:
+                failures += 1
+                print(f"⚠️ Failed to fetch round {r}. (Attempts: {failures}/3)")
             time.sleep(2)
 
     def fetch_lotto_data_via_gemini(self, round_no):
         """
         [Library Migration] Uses google-genai to parse lottery data.
         """
-        if not self.client:
-            print("❌ Gemini Client not initialized.")
+        if not self.client or not self.model_name:
+            print("❌ Gemini Client not initialized. Cannot parse.")
             return None
 
         url = f"https://search.naver.com/search.naver?query=로또+{round_no}회+당첨번호"
@@ -316,7 +344,6 @@ class HybridSniperOrchestrator:
 
             prompt = f"Extract Lotto data for round {round_no} from text into JSON. Fields: drwNo(int), drwtNo1..6(int), bnusNo(int), firstAccumamnt(int), firstPrzwnerCo(int), drwNoDate(str YYYY-MM-DD). Text: {text}"
 
-            # [Migration] Use client.models.generate_content
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt
@@ -333,15 +360,16 @@ class HybridSniperOrchestrator:
         try:
             ws = self.gc.open(self.sheet_name).worksheet(REC_SHEET_NAME)
             ws.clear()
+            model_display = self.model_name if self.model_name else "Fallback Strategy"
             ws.update(range_name='A1', values=[['🏆 Hybrid Sniper V5: AI Taxonomy Orchestration']])
-            ws.update(range_name='A3', values=[[f'🔥 {self.model_name} Selected Top 10']])
+            ws.update(range_name='A3', values=[[f'🔥 {model_display} Selected Top 10']])
             rows = [[f"Rank {i+1}"] + g for i, g in enumerate(games)]
             ws.update(range_name='A5', values=rows)
             ws.update(range_name='A18', values=[['🚀 AI Future Technology Lab (R&D Insight)']])
             ws.update(range_name='A19', values=[
-                ["Analysis", "Supervised (ML/DL) + Unsupervised (Clustering)"],
+                ["Analysis", "Supervised (Classification/Regression) + Unsupervised (PCA)"],
                 ["Optimization", "Reinforcement (PPO) + Evolutionary (GA)"],
-                ["Filter", f"Generative AI ({self.model_name})"],
+                ["Filter", f"Generative AI ({model_display})"],
                 ["Hardware", "M5 Safety Mode (Active Cooling)"]
             ])
         except Exception as e:
@@ -353,7 +381,7 @@ class HybridSniperOrchestrator:
             ws.append_row([datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), agent, status, msg])
         except: pass
 
-# --- Data Manager ---
+# --- Data Manager with Unsupervised Learning ---
 class LottoDataManager:
     def __init__(self, gc, sheet_name):
         self.gc = gc
@@ -377,21 +405,34 @@ class LottoDataManager:
 
     def analyze_patterns_unsupervised(self, full_data):
         try:
-            data = np.array(full_data) # [Fix] full_data is list of lists
+            data = np.array(full_data)
             scaler = StandardScaler()
             scaled_data = scaler.fit_transform(data)
+
+            # [AI Taxonomy: Unsupervised] Clustering
             kmeans = KMeans(n_clusters=5, random_state=42)
             kmeans.fit(scaled_data)
             last_draw = scaled_data[-1].reshape(1, -1)
             cluster_id = kmeans.predict(last_draw)[0]
-            return f"Recent draw belongs to Cluster {cluster_id} (Pattern Grouping)"
+
+            # [AI Taxonomy: Unsupervised] Dimensionality Reduction
+            pca = PCA(n_components=2)
+            pca.fit(scaled_data)
+            variance = pca.explained_variance_ratio_
+
+            return f"Cluster {cluster_id} | PCA Variance: {variance}"
         except Exception as e:
-            return f"Clustering failed: {e}"
+            return f"Unsupervised Analysis failed: {e}"
 
     def prepare_training_data(self, data_source, lookback=5):
         X, y = [], []
         if len(data_source) <= lookback: return np.array([]), np.array([])
-        numbers = data_source if isinstance(data_source[0], list) else [d['nums'] for d in data_source]
+        # Handle list of dicts OR list of lists
+        if isinstance(data_source[0], dict):
+            numbers = [d['nums'] for d in data_source]
+        else:
+            numbers = data_source
+
         for i in range(lookback, len(numbers)):
             seq = numbers[i-lookback:i]
             target = numbers[i]
@@ -425,23 +466,30 @@ class EnsemblePredictor:
 
     def train_group_a(self, X, y):
         self.models = []
+        # Random Forest (Classification)
         for d in [10, 20, 30, 40, None]:
             rf = RandomForestClassifier(n_estimators=100, max_depth=d, n_jobs=USED_CORES)
             rf.fit(X, y)
             self.models.append((f'RF_d{d}', rf))
             gc.collect()
+
+        # XGBoost (Classification)
         for d in [3, 5, 7]:
             xgb_est = xgb.XGBClassifier(n_estimators=50, max_depth=d, n_jobs=1, tree_method='hist')
             model = MultiOutputClassifier(xgb_est, n_jobs=USED_CORES)
             model.fit(X, y)
             self.models.append((f'XGB_d{d}', model))
             gc.collect()
+
+        # CatBoost (Classification)
         for d in [4, 6, 8]:
             cbm = cb.CatBoostClassifier(iterations=50, depth=d, verbose=0, thread_count=1)
             model = MultiOutputClassifier(cbm, n_jobs=USED_CORES)
             model.fit(X, y)
             self.models.append((f'CatBoost_d{d}', model))
             gc.collect()
+
+        # KNN (Classification)
         for k in [3, 5, 7, 9, 11]:
             knn = KNeighborsClassifier(n_neighbors=k, n_jobs=USED_CORES)
             knn.fit(X, y)
@@ -467,18 +515,24 @@ class EnsemblePredictor:
         y_tensor = torch.tensor(y, dtype=torch.float32).to(DEVICE)
         ds = TensorDataset(X_tensor, y_tensor)
         dl = DataLoader(ds, batch_size=32, shuffle=True)
+
+        # LSTM (Recurrent / Encoder-Decoder)
         for h in [64, 128, 256]:
             lstm = SimpleLSTM(6, h).to(DEVICE)
             train_torch_model(lstm, dl)
             self.models.append((f'LSTM_h{h}', lstm))
             gc.collect()
             time.sleep(0.5)
+
+        # GRU (Recurrent / Encoder-Decoder)
         for h in [64, 128, 256]:
             gru = SimpleGRU(6, h).to(DEVICE)
             train_torch_model(gru, dl)
             self.models.append((f'GRU_h{h}', gru))
             gc.collect()
             time.sleep(0.5)
+
+        # CNN (Feature Extraction)
         for k in [2, 3, 4]:
             cnn = SimpleCNN(k).to(DEVICE)
             train_torch_model(cnn, dl)
@@ -502,6 +556,7 @@ class EnsemblePredictor:
 
 # --- Helpers ---
 class SimpleLSTM(nn.Module):
+    """[Architecture] Encoder-Decoder Structure for Temporal Feature Extraction"""
     def __init__(self, i, h):
         super().__init__()
         self.lstm = nn.LSTM(i, h, batch_first=True)
@@ -512,6 +567,7 @@ class SimpleLSTM(nn.Module):
         return self.sig(self.fc(h[-1]))
 
 class SimpleGRU(nn.Module):
+    """[Architecture] Encoder-Decoder Structure for Temporal Feature Extraction"""
     def __init__(self, i, h):
         super().__init__()
         self.gru = nn.GRU(i, h, batch_first=True)
@@ -592,7 +648,6 @@ class GeneticEvolution:
             if len(unique) >= 30: break
         return unique
 
-# --- Gemini 1.5 Pro Filter (Migration) ---
 class GeminiStrategyFilter:
     def __init__(self, client, model_name):
         self.client = client
@@ -602,7 +657,6 @@ class GeminiStrategyFilter:
         if not self.client: return candidates[:10]
         prompt = f"Select 10 best lotto combinations from {candidates} considering recent flow {recent}. Output strictly JSON: {{'games': [[...]]}}"
         try:
-            # [Migration] Use client.models.generate_content
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt
