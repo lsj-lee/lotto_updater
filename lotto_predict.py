@@ -269,9 +269,10 @@ class HybridSniperV5(nn.Module):
 # --- Training Engine (IW) ---
 class LottoDataset(Dataset):
     def __init__(self, X_time, X_logic, y):
-        self.X_time = torch.tensor(X_time, dtype=torch.long)
-        self.X_logic = torch.tensor(X_logic, dtype=torch.float32)
-        self.y = torch.tensor(y, dtype=torch.float32)
+        # [Tensor Copy Fix] Use clone().detach() if input is tensor, else torch.tensor()
+        self.X_time = X_time.clone().detach().long() if isinstance(X_time, torch.Tensor) else torch.tensor(X_time, dtype=torch.long)
+        self.X_logic = X_logic.clone().detach().float() if isinstance(X_logic, torch.Tensor) else torch.tensor(X_logic, dtype=torch.float32)
+        self.y = y.clone().detach().float() if isinstance(y, torch.Tensor) else torch.tensor(y, dtype=torch.float32)
 
     def __len__(self): return len(self.y)
     def __getitem__(self, idx): return self.X_time[idx], self.X_logic[idx], self.y[idx]
@@ -370,19 +371,18 @@ class LottoTrainer:
 
                 self.optimizer.zero_grad()
 
-                if DEVICE.type == 'cuda' or DEVICE.type == 'mps':
-                    with torch.amp.autocast(device_type=DEVICE.type, dtype=torch.float16):
+                # [Stability Fix] MPS (Mac) often has issues with mixed precision (mps.subtract type error).
+                # We force standard FP32 for MPS to ensure stability. AMP is enabled only for CUDA.
+                if DEVICE.type == 'cuda':
+                    with torch.amp.autocast(device_type='cuda', dtype=torch.float16):
                         outputs = self.model(x_time, x_logic)
                         loss = self.criterion(outputs, y)
 
-                    if self.scaler:
-                        self.scaler.scale(loss).backward()
-                        self.scaler.step(self.optimizer)
-                        self.scaler.update()
-                    else:
-                        loss.backward()
-                        self.optimizer.step()
+                    self.scaler.scale(loss).backward()
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
                 else:
+                    # Standard FP32 for MPS / CPU
                     outputs = self.model(x_time, x_logic)
                     loss = self.criterion(outputs, y)
                     loss.backward()
