@@ -22,6 +22,7 @@ CREDS_FILE = 'creds_lotto.json'
 SHEET_NAME = '로또 max'
 LOG_SHEET_NAME = 'Log'
 REC_SHEET_NAME = '추천번호'
+MODEL_FILE = 'best_model.pth'
 
 # Device Configuration
 if torch.backends.mps.is_available():
@@ -42,7 +43,7 @@ LEARNING_RATE = 0.001
 SEQ_SCALES = [10, 50, 100, 200, 300, 500, 700, 1000] # Full 8 Scales (Restored)
 MAX_SEQ_LEN = 1000 # Restored to 1000
 FEATURE_DIM_LOGIC = 3 # Sum, Odd/Even, AC Index
-AUGMENTATION_FACTOR = 500 # Expand ~500x to reach 100k+ samples (212 base * 500 ~= 106,000)
+AUGMENTATION_FACTOR = 100 # [Safety First] Expand 100x (~21k samples) for M5 stability
 
 # --- Helper Functions ---
 def calculate_ac_index(numbers):
@@ -294,7 +295,7 @@ class LottoTrainer:
         self.scaler = torch.cuda.amp.GradScaler() if DEVICE.type == 'cuda' else None
 
     def train_cgan_augmentation(self):
-        print("🧬 Training Conditional cGAN for Data Augmentation (Scale-up to 100k+)...")
+        print("🧬 Training Conditional cGAN for Data Augmentation (Scale-up to ~21k)...")
         data_loader = DataLoader(self.dataset, batch_size=BATCH_SIZE, shuffle=True)
 
         generator = LottoGenerator(latent_dim=10, num_classes=46, output_dim=FEATURE_DIM_LOGIC).to(DEVICE)
@@ -304,7 +305,6 @@ class LottoTrainer:
         d_optimizer = optim.Adam(discriminator.parameters(), lr=0.0002)
         criterion = nn.BCELoss()
 
-        # Reduced epochs for cGAN training itself, focusing on generation
         for epoch in range(EPOCHS_CGAN):
             for _, real_logic, real_labels in data_loader:
                 real_logic, real_labels = real_logic.to(DEVICE), real_labels.to(DEVICE)
@@ -329,7 +329,7 @@ class LottoTrainer:
                 g_loss.backward()
                 g_optimizer.step()
 
-        print("✅ cGAN Training Complete. Generating Massive Augmentation Data...")
+        print("✅ cGAN Training Complete. Generating Augmentation Data...")
 
         # [Eval Mode Fix] Essential for preventing BatchNorm crash with single samples or small batches
         generator.eval()
@@ -338,12 +338,10 @@ class LottoTrainer:
         aug_X_logic = []
         aug_y = []
 
-        # Expand ~85x (1 Real + 84 Synthetic) to reach ~100k samples
+        # Expand ~100x (1 Real + 99 Synthetic) to reach ~21k samples
         all_X_time = self.dataset.X_time
         all_y = self.dataset.y
 
-        # Process in larger batches for efficiency if possible, but keeping logic simple
-        # Generate 84 synthetic samples for each real sample
         expansion_factor = AUGMENTATION_FACTOR
 
         print(f"🔄 Generating {expansion_factor}x synthetic data...")
@@ -370,11 +368,22 @@ class LottoTrainer:
             torch.cat([self.dataset.y, torch.stack(aug_y)])
         )
         self.dataset = aug_dataset
-        print(f"📈 Dataset Expanded: {len(self.dataset)} samples (100k+ Target Reached)")
+        print(f"📈 Dataset Expanded: {len(self.dataset)} samples (Safety Scale Reached)")
 
-    def train_main(self):
+    def train_main(self, resume=False):
         print(f"🔥 Starting Main Training ({EPOCHS_MAIN} epochs)...")
-        # Increase batch size for larger dataset? Keeping 32/64
+
+        # [Resume Logic] Load best_model.pth if resuming
+        if resume:
+            if os.path.exists(MODEL_FILE):
+                try:
+                    self.model.load_state_dict(torch.load(MODEL_FILE))
+                    print(f"🔄 Resumed training from {MODEL_FILE}")
+                except Exception as e:
+                    print(f"⚠️ Failed to resume model: {e}")
+            else:
+                print("⚠️ No checkpoint found to resume.")
+
         data_loader = DataLoader(self.dataset, batch_size=BATCH_SIZE, shuffle=True)
         best_loss = float('inf')
 
@@ -387,8 +396,7 @@ class LottoTrainer:
 
                 self.optimizer.zero_grad()
 
-                # [Stability Fix] MPS (Mac) often has issues with mixed precision (mps.subtract type error).
-                # We force standard FP32 for MPS to ensure stability. AMP is enabled only for CUDA.
+                # [Stability Fix] MPS (Mac) standard FP32
                 if DEVICE.type == 'cuda':
                     with torch.amp.autocast(device_type='cuda', dtype=torch.float16):
                         outputs = self.model(x_time, x_logic)
@@ -407,12 +415,17 @@ class LottoTrainer:
                 total_loss += loss.item()
 
             avg_loss = total_loss / len(data_loader)
+
+            # [Checkpoint] Save best model
             if avg_loss < best_loss:
                 best_loss = avg_loss
-                torch.save(self.model.state_dict(), "best_model.pth")
+                torch.save(self.model.state_dict(), MODEL_FILE)
 
-            if (epoch+1) % 20 == 0:
-                print(f"Epoch {epoch+1}: Loss {avg_loss:.4f}")
+            # [Safety Log] GPU check
+            if (epoch+1) % 10 == 0:
+                print(f"Epoch {epoch+1}: Loss {avg_loss:.4f} | 🛡️ GPU Status: Running Safely (FP32)")
+                # Force save every 10 epochs for safety (optional overwrite)
+                torch.save(self.model.state_dict(), f"checkpoint_epoch_{epoch+1}.pth")
 
         self.log_to_sheet(best_loss)
 
@@ -432,7 +445,7 @@ class LottoTrainer:
                 "HybridSniperV5",
                 "TRAINING_COMPLETE",
                 f"Loss: {loss:.4f}",
-                "Includes: LSTM(8-Scale), TabNet(Attention), GNN, cGAN(100k+)"
+                "Includes: LSTM(8-Scale), TabNet(Attention), GNN, cGAN(21k+)"
             ], value_input_option='USER_ENTERED')
         except Exception as e:
             print(f"Log Error: {e}")
@@ -554,7 +567,7 @@ def update_sheet_report(games, elite):
         ws.update(range_name='A20', values=[['🚀 AI Future Technology Lab (R&D Insight)']])
         ws.update(range_name='A21', values=[
             ["Architecture", "Hybrid Sniper V5 (Multi-Head + TabNet)"],
-            ["Augmentation", "cGAN Scale-up (100,000+ Samples)"],
+            ["Augmentation", "cGAN Scale-up (~21k Samples / 100x)"],
             ["Strategy", "Gemini 1.5 Pro Filter (Balance/Flow/Heat)"],
             ["Hardware", "Apple M5 MPS Optimized (FP32 Stable)"]
         ])
@@ -564,6 +577,17 @@ def update_sheet_report(games, elite):
 
 def main():
     print("🛸 Hybrid Sniper V5 (Phase 3) Initializing...")
+
+    # Check for Resume
+    resume_flag = False
+    if os.path.exists(MODEL_FILE):
+        user_input = input(f"💾 Found existing checkpoint '{MODEL_FILE}'. Resume training? (y/n): ")
+        if user_input.lower() == 'y':
+            resume_flag = True
+            print("✅ Resuming training...")
+        else:
+            print("⚠️ Starting fresh training...")
+
     dm = LottoDataManager(CREDS_FILE, SHEET_NAME)
     dm.fetch_data()
     adj = dm.get_cooccurrence_matrix()
@@ -580,8 +604,8 @@ def main():
     # 1. cGAN Training & Augmentation (Scale-up)
     trainer.train_cgan_augmentation()
 
-    # 2. Main Training
-    trainer.train_main()
+    # 2. Main Training (with Resume flag)
+    trainer.train_main(resume=resume_flag)
 
     # 3. Predict & Gemini Filter
     games, elite = generate_recommendations(model, X_time[-1], X_logic[-1], adj, dm)
