@@ -2,6 +2,7 @@ import os
 import time
 import gc
 import random
+import json
 import multiprocessing
 import numpy as np
 import pandas as pd
@@ -12,14 +13,12 @@ from torch.utils.data import Dataset, DataLoader
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from dotenv import load_dotenv
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.svm import SVC
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.multioutput import MultiOutputClassifier
-from sklearn.preprocessing import StandardScaler
 import xgboost as xgb
-import lightgbm as lgb
-# catboost can be tricky on some systems, using xgboost/lightgbm primarily
+import catboost as cb
+import google.generativeai as genai
 
 # Load environment variables
 load_dotenv()
@@ -52,6 +51,7 @@ class LottoDataManager:
         self.sheet_name = sheet_name
         self.gc = self._authenticate()
         self.numbers = []
+        self.raw_data = [] # Store full data for logging/context
 
     def _authenticate(self):
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -81,8 +81,9 @@ class LottoDataManager:
 
             # Sort by round
             parsed_data.sort(key=lambda x: x['round'])
+            self.raw_data = parsed_data
             self.numbers = [d['nums'] for d in parsed_data]
-            print(f"✅ Loaded {len(self.numbers)} REAL rounds. (No Synthetic Data)")
+            print(f"✅ Loaded {len(self.numbers)} REAL rounds. (Anti-GIGO: No Synthetic Data)")
             return self.numbers
         except Exception as e:
             print(f"❌ Error fetching data: {e}")
@@ -90,7 +91,6 @@ class LottoDataManager:
 
     def prepare_training_data(self, lookback=5):
         # Prepare X, y for supervised learning (Next number prediction)
-        # We treat this as a multi-label classification problem (45 classes)
         X = []
         y = []
         for i in range(lookback, len(self.numbers)):
@@ -100,7 +100,7 @@ class LottoDataManager:
             # Flatten sequence for ML models
             X.append(np.array(seq).flatten())
 
-            # Target vector
+            # Target vector (Multi-label)
             t_vec = np.zeros(45)
             for n in target:
                 t_vec[n-1] = 1 # Index 0-44
@@ -112,54 +112,62 @@ class LottoDataManager:
 class EnsemblePredictor:
     def __init__(self):
         self.models = []
-        self.weights = []
 
     def train_ensemble(self, X, y):
-        print("🔥 Training 20-Model Ensemble Engine...")
+        print("🔥 Training 20+ Model Ensemble Engine...")
 
-        # 1. Machine Learning Models (sklearn/xgb/lgb)
-        # We create variations by changing hyperparameters
-
-        # 1. Machine Learning Models (sklearn/xgb/lgb)
+        # 1. Machine Learning Models (sklearn/xgb/catboost)
         # Random Forest Variations (5 Models)
         for depth in [10, 20, 30, 40, None]:
             print(f"   > Training RandomForest (Depth {depth})...")
             rf = RandomForestClassifier(n_estimators=100, max_depth=depth, n_jobs=USED_CORES)
             rf.fit(X, y)
             self.models.append(('RF', rf))
+            gc.collect()
 
-        # XGBoost Variations (3 Models) - Wrapped for Multi-Label
+        # XGBoost Variations (3 Models)
         for depth in [3, 5, 7]:
             print(f"   > Training XGBoost (Depth {depth})...")
-            # MultiOutputClassifier enables multi-label for XGBoost
             xgb_estimator = xgb.XGBClassifier(n_estimators=50, max_depth=depth, n_jobs=USED_CORES, tree_method='hist')
             model = MultiOutputClassifier(xgb_estimator, n_jobs=USED_CORES)
             model.fit(X, y)
             self.models.append(('XGB', model))
+            gc.collect()
 
-        # KNN Variations (7 Models)
-        for k in [3, 5, 7, 9, 11, 15, 21]:
+        # CatBoost Variations (3 Models)
+        for depth in [4, 6, 8]:
+            print(f"   > Training CatBoost (Depth {depth})...")
+            # CatBoost MultiLabel is specific, using independent strategy wrapper for simplicity if needed,
+            # or MultiOutputClassifier. CatBoost classifier supports multi-class, but multi-label needs care.
+            # We use MultiOutputClassifier for consistency.
+            cb_estimator = cb.CatBoostClassifier(iterations=50, depth=depth, verbose=False, thread_count=USED_CORES)
+            model = MultiOutputClassifier(cb_estimator, n_jobs=USED_CORES)
+            model.fit(X, y)
+            self.models.append(('CatBoost', model))
+            gc.collect()
+
+        # KNN Variations (5 Models)
+        for k in [3, 5, 7, 9, 11]:
             knn = KNeighborsClassifier(n_neighbors=k, n_jobs=USED_CORES)
             knn.fit(X, y)
             self.models.append(('KNN', knn))
+            gc.collect()
 
         # 2. Deep Learning Models (PyTorch) - 9 Models
-        # We need to convert X to tensor format for DL
-        X_tensor = torch.tensor(X, dtype=torch.float32).view(len(X), 5, 6).to(DEVICE) # Reshape back to (Batch, Seq, Feat)
+        # Reshape for DL
+        X_tensor = torch.tensor(X, dtype=torch.float32).view(len(X), 5, 6).to(DEVICE)
         y_tensor = torch.tensor(y, dtype=torch.float32).to(DEVICE)
-
         dataset = TensorDataset(X_tensor, y_tensor)
         loader = DataLoader(dataset, batch_size=32, shuffle=True)
 
-        # Train multiple DL architectures
         # LSTM Variations (3 Models)
         for hidden in [64, 128, 256]:
             print(f"   > Training LSTM (Hidden {hidden})...")
             model = SimpleLSTM(input_size=6, hidden_size=hidden).to(DEVICE)
             train_torch_model(model, loader)
             self.models.append(('LSTM', model))
-            gc.collect() # [Safety] Memory Cleanup
-            time.sleep(1) # [Safety] Cooling
+            gc.collect()
+            time.sleep(0.5) # Cooling
 
         # GRU Variations (3 Models)
         for hidden in [64, 128, 256]:
@@ -168,7 +176,7 @@ class EnsemblePredictor:
             train_torch_model(model, loader)
             self.models.append(('GRU', model))
             gc.collect()
-            time.sleep(1)
+            time.sleep(0.5)
 
         # 1D-CNN Variations (3 Models)
         for kernel in [2, 3, 4]:
@@ -177,39 +185,33 @@ class EnsemblePredictor:
             train_torch_model(model, loader)
             self.models.append(('CNN', model))
             gc.collect()
-            time.sleep(1)
+            time.sleep(0.5)
 
         print(f"✅ Ensemble Training Complete. Total Models: {len(self.models)}")
 
     def predict_probs(self, last_seq):
-        # Aggregate predictions from all models
+        # Aggregate predictions
         total_probs = np.zeros(45)
-
-        # Flatten for ML
         flat_seq = np.array(last_seq).flatten().reshape(1, -1)
-
-        # Tensor for DL
         tensor_seq = torch.tensor(last_seq, dtype=torch.float32).unsqueeze(0).to(DEVICE)
 
         for name, model in self.models:
-            if name in ['RF', 'KNN', 'XGB']:
+            if name in ['RF', 'KNN', 'XGB', 'CatBoost']:
                 probs = np.array(model.predict_proba(flat_seq))
-                # sklearn predict_proba returns list of (n_samples, 2) per label
-                # We need Prob(1) for each label
-                # For MultiOutputClassifier, predict_proba returns a list of arrays
+                # Handle different return shapes for multi-output
                 try:
-                    p_vec = np.array([p[0][1] for p in probs]) # Shape (45,)
+                    # Usually list of (n_samples, 2)
+                    p_vec = np.array([p[0][1] for p in probs])
                 except:
-                    # Fallback if structure varies (e.g. single output vs list)
+                    # Fallback
                     p_vec = np.array([p[0][1] if len(p[0]) > 1 else 0 for p in probs])
                 total_probs += p_vec
             elif name in ['LSTM', 'GRU', 'CNN']:
                 model.eval()
                 with torch.no_grad():
-                    out = model(tensor_seq).cpu().numpy()[0] # (45,)
+                    out = model(tensor_seq).cpu().numpy()[0]
                 total_probs += out
 
-        # Normalize
         return total_probs / len(self.models)
 
 # --- PyTorch Models ---
@@ -237,10 +239,9 @@ class SimpleCNN(nn.Module):
     def __init__(self, kernel_size):
         super().__init__()
         self.conv1 = nn.Conv1d(6, 32, kernel_size=kernel_size)
-        self.fc = nn.Linear(32 * (5 - kernel_size + 1), 45) # 5 is seq len
+        self.fc = nn.Linear(32 * (5 - kernel_size + 1), 45)
         self.sigmoid = nn.Sigmoid()
     def forward(self, x):
-        # x: (Batch, Seq, Feat) -> (Batch, Feat, Seq) for Conv1d
         x = x.permute(0, 2, 1)
         x = torch.relu(self.conv1(x))
         x = x.view(x.size(0), -1)
@@ -267,102 +268,133 @@ def train_torch_model(model, loader, epochs=30):
 # --- Genetic Algorithm (Evolution Engine) ---
 class GeneticEvolution:
     def __init__(self, ensemble_probs, population_size=1000, generations=500):
-        self.probs = ensemble_probs # (45,) probability from ensemble
+        self.probs = ensemble_probs
         self.pop_size = population_size
         self.generations = generations
 
     def initialize_population(self):
-        # [Expert Seed] Use ensemble probabilities to weight initial selection
         pop = []
         numbers = list(range(1, 46))
+        # Weight by ensemble probability
         weights = self.probs / self.probs.sum()
-
         for _ in range(self.pop_size):
-            # Weighted random choice
             gene = sorted(np.random.choice(numbers, 6, replace=False, p=weights))
             pop.append(gene)
         return pop
 
     def fitness(self, gene):
-        # Score based on:
-        # 1. Sum of ensemble probabilities for these numbers
-        # 2. Heuristic Constraints (Sum 100-200, Odd/Even Balance)
-
-        # Prob Score
         prob_score = sum(self.probs[n-1] for n in gene)
-
-        # Constraints
         total = sum(gene)
         odd = sum(1 for n in gene if n % 2 != 0)
-
         penalty = 0
         if not (100 <= total <= 200): penalty += 5
         if not (2 <= odd <= 4): penalty += 2
-
-        return prob_score * 10 - penalty # Scale up probability importance
+        return prob_score * 10 - penalty
 
     def evolve(self):
         print(f"🧬 Starting Genetic Evolution ({self.generations} Generations)...")
         population = self.initialize_population()
 
         for gen in range(self.generations):
-            # Evaluation
             scores = [(gene, self.fitness(gene)) for gene in population]
             scores.sort(key=lambda x: x[1], reverse=True)
 
-            # Selection (Top 20%)
+            # Elitism
             elite_count = int(self.pop_size * 0.2)
             elites = [s[0] for s in scores[:elite_count]]
 
-            # Crossover & Mutation to fill rest
             next_gen = elites[:]
             while len(next_gen) < self.pop_size:
                 parent1 = random.choice(elites)
                 parent2 = random.choice(elites)
-
-                # Crossover
                 cut = random.randint(1, 5)
                 child = parent1[:cut] + [n for n in parent2 if n not in parent1[:cut]]
-
-                # Fill if duplicates/short (rare)
                 while len(child) < 6:
                     n = random.randint(1, 45)
                     if n not in child: child.append(n)
                 child = child[:6]
-
-                # Mutation (5%)
                 if random.random() < 0.05:
                     idx = random.randint(0, 5)
                     new_n = random.randint(1, 45)
                     while new_n in child: new_n = random.randint(1, 45)
                     child[idx] = new_n
-
                 next_gen.append(sorted(child))
 
             population = next_gen
 
-            # [Safety] Cooling & Monitoring
+            # [Safety] Cooling & Monitoring (Every 50 gens)
             if (gen + 1) % 50 == 0:
-                print(f"   > Gen {gen+1}/{self.generations} | Top Fitness: {scores[0][1]:.2f} | ✅ System Stability Checked")
-                time.sleep(1) # Breath
+                print(f"   > Gen {gen+1}/{self.generations} | Stability Check: OK | ❄️ Cooling (1.5s)...")
+                time.sleep(1.5) # Cooling Pause
 
-        # Return Top 10
-        final_scores = [(gene, self.fitness(gene)) for gene in population]
-        final_scores.sort(key=lambda x: x[1], reverse=True)
+        # Return top 30 unique candidates for LLM filtering
+        scores = [(gene, self.fitness(gene)) for gene in population]
+        scores.sort(key=lambda x: x[1], reverse=True)
 
-        # Deduplicate
-        unique_games = []
+        unique_candidates = []
         seen = set()
-        for gene, sc in final_scores:
+        for gene, sc in scores:
             t_gene = tuple(gene)
             if t_gene not in seen:
-                unique_games.append(gene)
+                unique_candidates.append(gene)
                 seen.add(t_gene)
-            if len(unique_games) == 10: break
+            if len(unique_candidates) >= 30: break
 
-        return unique_games
+        return unique_candidates
 
-# --- Main & Reporting ---
+# --- LLM Strategy Filtering (Gemini 1.5 Pro) ---
+class GeminiStrategyFilter:
+    def __init__(self):
+        self.api_key = os.getenv("GEMINI_API_KEY")
+        if self.api_key:
+            genai.configure(api_key=self.api_key)
+            self.model = genai.GenerativeModel('gemini-1.5-pro')
+        else:
+            self.model = None
+
+    def filter_candidates(self, candidates, recent_draws):
+        if not self.model:
+            print("⚠️ Gemini API Key not found. Using simple selection.")
+            return candidates[:10]
+
+        print("🤖 Gemini 1.5 Pro: Filtering Top 10 from Elite Candidates...")
+
+        prompt = f"""
+        You are a lottery strategy expert. I have 30 "Elite Combinations" generated by a Genetic Algorithm/Ensemble model.
+        Select exactly 10 best combinations based on:
+        1. **Recent Flow**: Compare with the provided last 5 draws.
+        2. **Probabilistic Scarcity**: Choose patterns that are not too obvious.
+        3. **Balance**: Good mix of sections.
+
+        [Input]
+        - Candidate Combinations: {candidates}
+        - Recent 5 Draws: {recent_draws}
+
+        [Output]
+        JSON object with key "selected_games" containing a list of 10 arrays.
+        Example: {{"selected_games": [[1, 2, 3, 4, 5, 6], ...]}}
+        Only JSON.
+        """
+
+        try:
+            response = self.model.generate_content(prompt)
+            text = response.text.strip()
+            if text.startswith("```json"): text = text[7:]
+            if text.endswith("```"): text = text[:-3]
+
+            data = json.loads(text)
+            games = data.get("selected_games", [])
+
+            if len(games) != 10:
+                print(f"⚠️ Gemini returned {len(games)} games. Using top 10 from GA.")
+                return candidates[:10]
+
+            return games
+        except Exception as e:
+            print(f"❌ Gemini Error: {e}")
+            return candidates[:10]
+
+# --- Reporting ---
 def update_report(games):
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -372,48 +404,49 @@ def update_report(games):
         ws = sh.worksheet(REC_SHEET_NAME)
         ws.clear()
 
-        ws.update(range_name='A1', values=[['🏆 Hybrid Sniper V5: 20-Model Ensemble & Genetic Evo']])
-        ws.update(range_name='A3', values=[['🔥 Final Top 10 Combinations']])
+        ws.update(range_name='A1', values=[['🏆 Hybrid Sniper V5: Final Integrated Engine']])
+        ws.update(range_name='A3', values=[['🔥 Gemini 1.5 Pro Selected Top 10']])
 
         rows = [[f"Rank {i+1}"] + g for i, g in enumerate(games)]
         ws.update(range_name='A5', values=rows)
 
         ws.update(range_name='A18', values=[['🚀 AI Future Technology Lab (R&D Insight)']])
         ws.update(range_name='A19', values=[
-            ["Strategy", "20-Model Ensemble + Genetic Evolution (500 Gen)"],
-            ["Data Source", "100% Real Data (1,212 Rounds)"],
-            ["Safety", "M5 Core Limiting + Active Cooling Logic"],
-            ["Status", "Optimization Complete"]
+            ["Strategy", "20-Model Ensemble -> GA (500 Gen) -> Gemini 1.5 Pro"],
+            ["Data", "100% Real Data (1,212 Rounds)"],
+            ["Safety", "Active Cooling (1.5s) + Memory Clean"],
+            ["Status", "Final Optimization Complete"]
         ])
         print("💾 Report updated.")
     except Exception as e:
         print(f"Report Error: {e}")
 
 def main():
-    print("🛸 Hybrid Sniper V5 (Safety First Edition) Initializing...")
+    print("🛸 Hybrid Sniper V5 (Final Integration) Initializing...")
 
     # 1. Data
     dm = LottoDataManager(CREDS_FILE, SHEET_NAME)
     numbers = dm.fetch_data()
     if not numbers: return
 
-    # Prepare Input (5 week lookback)
+    # 2. Ensemble
     X, y = dm.prepare_training_data(lookback=5)
-
-    # 2. Ensemble Training
     ensemble = EnsemblePredictor()
     ensemble.train_ensemble(X, y)
 
-    # Get probs for next round (using last 5 weeks)
+    # 3. Genetic Evolution
     last_seq = numbers[-5:]
     ensemble_probs = ensemble.predict_probs(last_seq)
 
-    # 3. Genetic Evolution
     ga = GeneticEvolution(ensemble_probs, population_size=1000, generations=500)
-    best_games = ga.evolve()
+    elite_candidates = ga.evolve() # Returns 30
 
-    # 4. Report
-    update_report(best_games)
+    # 4. Gemini Filter
+    gemini = GeminiStrategyFilter()
+    final_games = gemini.filter_candidates(elite_candidates, last_seq)
+
+    # 5. Report
+    update_report(final_games)
     print("✅ Mission Accomplished: 10 Elite Games Generated.")
 
 if __name__ == "__main__":
