@@ -22,6 +22,7 @@ import catboost as cb
 import google.generativeai as genai
 import requests
 from bs4 import BeautifulSoup
+import joblib
 
 # Load environment variables
 load_dotenv()
@@ -31,8 +32,8 @@ CREDS_FILE = 'creds_lotto.json'
 SHEET_NAME = '로또 max'
 LOG_SHEET_NAME = 'Log'
 REC_SHEET_NAME = '추천번호'
-CONFIG_FILE = 'schedule_config.json'
-MODEL_FILE = 'best_model.pth'
+STATE_A_FILE = 'state_A.pkl'
+STATE_B_FILE = 'state_B.pkl'
 
 # Device Configuration
 if torch.backends.mps.is_available():
@@ -70,56 +71,185 @@ class HybridSniperOrchestrator:
         genai.configure(api_key=api_key)
         return genai.GenerativeModel('gemini-1.5-pro')
 
-    def run_pipeline(self):
-        print("🛸 Starting Hybrid Sniper V5 Evolutionary Orchestration...")
+    def dispatch_mission(self, force_day=None):
+        """
+        Executes specific missions based on the day of the week.
+        Sunday: Sync Data
+        Monday: Analysis A (ML Models)
+        Tuesday: Analysis B (DL Models)
+        Wednesday: Final Strike (GA + Gemini)
+        """
+        day = force_day if force_day else datetime.datetime.now().strftime("%a")
+        print(f"🗓️ Mission Control: Today is {day}. Initiating protocols...")
 
-        # 1. Update Data
+        self.log_to_sheet("SYSTEM", "START", f"Mission started for {day}")
+
+        if day == 'Sun':
+            self.mission_sunday_sync()
+        elif day == 'Mon':
+            self.mission_monday_analysis_a()
+        elif day == 'Tue':
+            self.mission_tuesday_analysis_b()
+        elif day == 'Wed':
+            self.mission_wednesday_final_strike()
+        else:
+            print("💤 No scheduled mission for today. Resting M5.")
+            self.log_to_sheet("SYSTEM", "SLEEP", "No mission scheduled.")
+
+    def mission_sunday_sync(self):
+        print("☀️ Sunday Mission: Data Synchronization")
         self.update_data()
+        print("✅ Sync Complete.")
+        self.log_to_sheet("DataSync", "COMPLETE", "Updated latest rounds.")
 
-        # 2. PPO Weighting (Reinforcement Learning)
-        print("⚖️ Calculating PPO Model Weights...")
+    def mission_monday_analysis_a(self):
+        print("🌙 Monday Mission: Group A Analysis (ML Models)")
         full_data = self.data_manager.fetch_data()
         if len(full_data) < 100: return
 
-        # Split: Train(0 to N-5), Validate(N-5 to N)
-        # Validation needs lookback, so we slice carefully
+        # Split for PPO: Train on N-5, Predict Validation (N-5 to N) & Next (N+1)
+        split_idx = len(full_data) - 5
+        train_data = full_data[:split_idx]
+        val_data = full_data[split_idx:] # Validation Target
+        val_history = full_data[split_idx-5:split_idx] # History for Val Input
+
+        # 1. Train on History -> Predict Validation
+        print("   > Training Group A on Historical Data...")
+        X_train, y_train = self.data_manager.prepare_training_data(train_data)
+        self.ensemble.train_group_a(X_train, y_train)
+
+        # Predict Validation (for PPO Weighting)
+        X_val, _ = self.data_manager.prepare_training_data(val_history + val_data, lookback=5)
+        # Note: prepare_training_data generates multiple samples. We just need the last 5.
+        # Actually, X_val generated from (val_history + val_data) will output predictions corresponding to val_data targets.
+        val_preds_a = self.ensemble.predict_group_a(X_val[-5:])
+
+        # 2. Retrain on Full Data -> Predict Next Round
+        print("   > Retraining Group A on Full Data...")
+        X_full, y_full = self.data_manager.prepare_training_data(full_data)
+        self.ensemble.train_group_a(X_full, y_full)
+
+        last_seq = full_data[-5:] # Input for next round
+        X_next = np.array(last_seq).flatten().reshape(1, -1)
+        next_preds_a = self.ensemble.predict_group_a(X_next, is_single=True) # Dictionary of preds
+
+        # Save State
+        state = {
+            'val_preds': val_preds_a,
+            'next_preds': next_preds_a,
+            'val_targets': [d['nums'] for d in val_data] # Save targets for PPO comparison
+        }
+        joblib.dump(state, STATE_A_FILE)
+        print(f"✅ Group A Analysis Saved to {STATE_A_FILE}")
+        self.log_to_sheet("Analysis_A", "SAVED", "ML Models (1-8) Processed.")
+        gc.collect()
+
+    def mission_tuesday_analysis_b(self):
+        print("🔥 Tuesday Mission: Group B Analysis (DL Models)")
+        full_data = self.data_manager.fetch_data()
+
         split_idx = len(full_data) - 5
         train_data = full_data[:split_idx]
         val_data = full_data[split_idx:]
-        val_history = full_data[split_idx-5:split_idx] # History for lookback
+        val_history = full_data[split_idx-5:split_idx]
 
-        # Train ensemble on historical data to evaluate recent performance
+        # 1. Train on History -> Predict Validation
+        print("   > Training Group B on Historical Data...")
         X_train, y_train = self.data_manager.prepare_training_data(train_data)
-        self.ensemble.train_ensemble(X_train, y_train)
+        self.ensemble.train_group_b(X_train, y_train)
 
-        # Evaluate on validation set to assign weights (PPO)
-        weights = self.evaluate_and_weight_models(val_data, val_history)
-        print(f"📊 PPO Weights Assigned: {weights}")
+        X_val, _ = self.data_manager.prepare_training_data(val_history + val_data, lookback=5)
+        val_preds_b = self.ensemble.predict_group_b(X_val[-5:])
 
-        # 3. Retrain on Full Data
-        print("🔄 Retraining Ensemble on Full Data...")
+        # 2. Retrain on Full Data -> Predict Next Round
+        print("   > Retraining Group B on Full Data...")
         X_full, y_full = self.data_manager.prepare_training_data(full_data)
-        self.ensemble.train_ensemble(X_full, y_full)
+        self.ensemble.train_group_b(X_full, y_full)
 
-        # 4. Predict Next Round
         last_seq = full_data[-5:]
-        ensemble_probs = self.ensemble.predict_probs(last_seq, weights)
+        X_next_tensor = torch.tensor(last_seq, dtype=torch.float32).unsqueeze(0).to(DEVICE)
+        next_preds_b = self.ensemble.predict_group_b(X_next_tensor, is_single=True)
 
-        # 5. Genetic Evolution
-        ga = GeneticEvolution(ensemble_probs, population_size=1000, generations=500)
+        state = {
+            'val_preds': val_preds_b,
+            'next_preds': next_preds_b
+        }
+        joblib.dump(state, STATE_B_FILE)
+        print(f"✅ Group B Analysis Saved to {STATE_B_FILE}")
+        self.log_to_sheet("Analysis_B", "SAVED", "DL Models (9-17) Processed.")
+        gc.collect()
+        torch.mps.empty_cache()
+
+    def mission_wednesday_final_strike(self):
+        print("🚀 Wednesday Mission: Final Strike (PPO + GA + Gemini)")
+
+        # Load States
+        if not os.path.exists(STATE_A_FILE) or not os.path.exists(STATE_B_FILE):
+            print("❌ Missing State Files! Cannot proceed.")
+            self.log_to_sheet("FinalStrike", "FAIL", "Missing State Files")
+            return
+
+        state_a = joblib.load(STATE_A_FILE)
+        state_b = joblib.load(STATE_B_FILE)
+
+        # 1. PPO Weight Calculation
+        # Compare val_preds (A & B) with val_targets (from A)
+        val_targets = state_a['val_targets'] # List of lists
+        all_val_preds = {**state_a['val_preds'], **state_b['val_preds']}
+
+        weights = self.calculate_ppo_weights(all_val_preds, val_targets)
+        print(f"⚖️ PPO Weights: {weights}")
+
+        # 2. Combine Predictions
+        all_next_preds = {**state_a['next_preds'], **state_b['next_preds']}
+        final_probs = np.zeros(45)
+
+        for name, pred_probs in all_next_preds.items():
+            w = weights.get(name, 1.0)
+            final_probs += pred_probs * w
+
+        final_probs /= len(all_next_preds)
+
+        # 3. Genetic Evolution
+        ga = GeneticEvolution(final_probs, population_size=1000, generations=500)
         elite_candidates = ga.evolve()
 
-        # 6. Gemini Strategy Filter
+        # 4. Gemini Filter
+        # Need recent data for context
+        full_data = self.data_manager.fetch_data()
+        last_seq = [d['nums'] for d in full_data[-5:]]
+
         gemini_filter = GeminiStrategyFilter(self.genai_model)
         final_games = gemini_filter.filter_candidates(elite_candidates, last_seq)
 
-        # 7. Report
+        # 5. Report
         self.update_report(final_games)
+        print("✅ Final Strike Complete.")
 
-        # 8. Self-Evolution Code Review
-        self.run_self_evolution_review()
+        # Cleanup
+        if os.path.exists(STATE_A_FILE): os.remove(STATE_A_FILE)
+        if os.path.exists(STATE_B_FILE): os.remove(STATE_B_FILE)
 
-        print("✅ Mission Accomplished: Orchestration Complete.")
+    def calculate_ppo_weights(self, all_preds, targets):
+        # all_preds: {model_name: np.array(5, 45)}
+        # targets: list of 5 lists
+        weights = {}
+        total_score = 0
+
+        for name, preds in all_preds.items():
+            score = 0
+            for i in range(len(targets)):
+                target_set = set(targets[i])
+                # Top 15 prediction
+                top_15 = preds[i].argsort()[::-1][:15]
+                hits = len(target_set & set(top_15))
+                score += hits
+
+            weights[name] = max(0.1, score)
+            total_score += weights[name]
+
+        for k in weights: weights[k] /= total_score
+        return weights
 
     def update_data(self):
         print("📡 Checking for Data Updates...")
@@ -153,76 +283,28 @@ class HybridSniperOrchestrator:
             print(f"❌ Fetch Error: {e}")
             return None
 
-    def evaluate_and_weight_models(self, val_data, history_data):
-        print("⚖️ Evaluating Models for PPO Weighting...")
-        weights = {}
-        total_score = 0
-
-        # Prepare validation inputs
-        # We need sequence inputs for the validation targets
-        # val_data[0] input comes from history_data[-5:]
-        combined = history_data + val_data
-        X_val, y_val = self.data_manager.prepare_training_data(combined, lookback=5)
-
-        if len(X_val) == 0: return {name: 1.0 for name, _ in self.ensemble.models}
-
-        for name, model in self.ensemble.models:
-            score = 0
-            # Predict
-            if name == 'LSTM':
-                model.eval()
-                X_tensor = torch.tensor(X_val, dtype=torch.float32).view(len(X_val), 5, 6).to(DEVICE)
-                with torch.no_grad():
-                    probs = model(X_tensor).cpu().numpy()
-            else:
-                probs = np.array(model.predict_proba(X_val))
-                try:
-                    probs = np.array([p[:, 1] for p in probs]).T
-                except:
-                    probs = np.zeros((len(X_val), 45))
-
-            # Score: Hit Rate in Top 15
-            for i in range(len(y_val)):
-                true_nums = np.where(y_val[i] == 1)[0]
-                pred_rank = probs[i].argsort()[::-1]
-                hits = len(set(true_nums) & set(pred_rank[:15]))
-                score += hits
-
-            weights[name] = max(0.1, score)
-            total_score += weights[name]
-
-        if total_score > 0:
-            for k in weights: weights[k] /= total_score
-        return weights
-
     def update_report(self, games):
         try:
             ws = self.gc.open(self.sheet_name).worksheet(REC_SHEET_NAME)
             ws.clear()
-            ws.update(range_name='A1', values=[['🏆 Hybrid Sniper V5: Evolutionary Orchestration']])
+            ws.update(range_name='A1', values=[['🏆 Hybrid Sniper V5: Distributed Orchestration']])
             ws.update(range_name='A3', values=[['🔥 Gemini 1.5 Pro Selected Top 10']])
             rows = [[f"Rank {i+1}"] + g for i, g in enumerate(games)]
             ws.update(range_name='A5', values=rows)
             ws.update(range_name='A18', values=[['🚀 AI Future Technology Lab (R&D Insight)']])
             ws.update(range_name='A19', values=[
-                ["Strategy", "PPO RL + Ensemble + GA + Gemini"],
-                ["Status", "Self-Evolution Cycle Active"],
+                ["Strategy", "Weekly Distributed (Sun-Wed) + PPO + GA"],
+                ["Status", "Final Strike Complete"],
                 ["Safety", "M5 Hardware Integrity Protected"]
             ])
         except Exception as e:
             print(f"Report Error: {e}")
 
-    def run_self_evolution_review(self):
-        print("🧬 Running Self-Evolution Code Review...")
+    def log_to_sheet(self, agent, status, msg):
         try:
-            with open(__file__, 'r') as f: code_content = f.read()
-            prompt = f"You are an AI Architect. Review this code. Suggest 1 optimization for 'Genetic Evolution' logic. Code: {code_content[:10000]}"
-            response = self.genai_model.generate_content(prompt)
-            suggestion = response.text
             ws = self.gc.open(self.sheet_name).worksheet(LOG_SHEET_NAME)
-            ws.append_row([datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Self-Evolution", "PROPOSAL", suggestion[:500]])
-            print("✨ Evolution Proposal Logged.")
-        except Exception as e: print(f"Self-Evolution Error: {e}")
+            ws.append_row([datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), agent, status, msg])
+        except: pass
 
 # --- Data Manager ---
 class LottoDataManager:
@@ -276,67 +358,127 @@ class LottoDataManager:
         row = [data['drwNo'], data['drwNoDate'], data['drwtNo1'], data['drwtNo2'], data['drwtNo3'], data['drwtNo4'], data['drwtNo5'], data['drwtNo6'], data['bnusNo'], data['firstPrzwnerCo'], data['firstAccumamnt'], data.get('firstPrzwnerStore', '')]
         ws.append_row(row)
 
-# --- Ensemble Engine ---
+# --- Ensemble Engine (Distributed) ---
 class EnsemblePredictor:
     def __init__(self):
-        self.models = []
+        self.models = [] # List of (name, model)
 
-    def train_ensemble(self, X, y):
-        self.models = []
-        # 1. Random Forest (3 Variations)
-        for d in [10, 20, None]:
+    def train_group_a(self, X, y):
+        """Train ML Models (RF, XGB, CatBoost, KNN)"""
+        self.models = [] # Clear local state
+        print("   > [Group A] Starting ML Training...")
+
+        # 1. Random Forest (5 Variations)
+        for d in [10, 20, 30, 40, None]:
             rf = RandomForestClassifier(n_estimators=100, max_depth=d, n_jobs=USED_CORES)
             rf.fit(X, y)
-            self.models.append(('RF', rf))
+            self.models.append((f'RF_d{d}', rf))
+            gc.collect()
 
         # 2. XGBoost (3 Variations)
         for d in [3, 5, 7]:
             xgb_est = xgb.XGBClassifier(n_estimators=50, max_depth=d, n_jobs=USED_CORES, tree_method='hist')
             model = MultiOutputClassifier(xgb_est, n_jobs=USED_CORES)
             model.fit(X, y)
-            self.models.append(('XGB', model))
+            self.models.append((f'XGB_d{d}', model))
+            gc.collect()
 
         # 3. KNN (5 Variations)
         for k in [3, 5, 7, 9, 11]:
             knn = KNeighborsClassifier(n_neighbors=k, n_jobs=USED_CORES)
             knn.fit(X, y)
-            self.models.append(('KNN', knn))
+            self.models.append((f'KNN_k{k}', knn))
+            gc.collect()
 
-        # 4. CatBoost (3 Variations)
-        for d in [4, 6, 8]:
-            cb_est = cb.CatBoostClassifier(iterations=50, depth=d, verbose=False, thread_count=USED_CORES)
-            model = MultiOutputClassifier(cb_est, n_jobs=USED_CORES)
-            model.fit(X, y)
-            self.models.append(('CatBoost', model))
+        print(f"   > [Group A] Trained {len(self.models)} Models.")
 
-        # 5. Deep Learning (LSTM) (3 Variations)
+    def predict_group_a(self, X_input, is_single=False):
+        """Returns dict of {model_name: probs}"""
+        preds = {}
+        # X_input: (Batch, Features) or (Features,) if single
+        if is_single and X_input.ndim == 1:
+            X_input = X_input.reshape(1, -1)
+
+        for name, model in self.models:
+            probs_raw = np.array(model.predict_proba(X_input))
+            # MultiOutput predict_proba -> list of arrays per label
+            try:
+                # Shape: (45, Samples, 2)
+                # We need (Samples, 45) prob of class 1
+                p_vec = np.array([col[:, 1] for col in probs_raw]).T
+            except:
+                # Fallback for some wrappers
+                p_vec = np.array([col[0][1] if len(col[0]) > 1 else 0 for col in probs_raw])
+                if is_single: p_vec = p_vec.reshape(1, -1)
+
+            if is_single:
+                preds[name] = p_vec[0]
+            else:
+                preds[name] = p_vec
+        return preds
+
+    def train_group_b(self, X, y):
+        """Train DL Models (LSTM, GRU, CNN)"""
+        self.models = []
+        print("   > [Group B] Starting DL Training...")
+
+        # Reshape for DL
         X_tensor = torch.tensor(X, dtype=torch.float32).view(len(X), 5, 6).to(DEVICE)
         y_tensor = torch.tensor(y, dtype=torch.float32).to(DEVICE)
         ds = TensorDataset(X_tensor, y_tensor)
         dl = DataLoader(ds, batch_size=32, shuffle=True)
 
+        # LSTM (3 Variations)
         for h in [64, 128, 256]:
             lstm = SimpleLSTM(6, h).to(DEVICE)
             train_torch_model(lstm, dl)
-            self.models.append(('LSTM', lstm))
+            self.models.append((f'LSTM_h{h}', lstm))
             gc.collect()
+            time.sleep(0.5)
 
-    def predict_probs(self, last_seq, weights=None):
-        total_probs = np.zeros(45)
-        flat_seq = np.array(last_seq).flatten().reshape(1, -1)
-        tensor_seq = torch.tensor(last_seq, dtype=torch.float32).unsqueeze(0).to(DEVICE)
+        # GRU (3 Variations)
+        for h in [64, 128, 256]:
+            gru = SimpleGRU(6, h).to(DEVICE)
+            train_torch_model(gru, dl)
+            self.models.append((f'GRU_h{h}', gru))
+            gc.collect()
+            time.sleep(0.5)
+
+        # CNN (3 Variations)
+        for k in [2, 3, 4]:
+            cnn = SimpleCNN(k).to(DEVICE)
+            train_torch_model(cnn, dl)
+            self.models.append((f'CNN_k{k}', cnn))
+            gc.collect()
+            time.sleep(0.5)
+
+        print(f"   > [Group B] Trained {len(self.models)} Models.")
+
+    def predict_group_b(self, X_input, is_single=False):
+        preds = {}
+        # X_input: (Batch, Seq, Feat) or (Seq, Feat)
+        if isinstance(X_input, np.ndarray):
+             # Ensure shape (Batch, 5, 6)
+             if is_single:
+                 X_input = X_input.reshape(1, 5, 6)
+             elif X_input.ndim == 2: # (Samples, Flattened) -> Need to reshape if passed flat?
+                 # Assuming passed as flat (Samples, 30) from prepare_training_data
+                 X_input = X_input.reshape(len(X_input), 5, 6)
+
+             X_tensor = torch.tensor(X_input, dtype=torch.float32).to(DEVICE)
+        else:
+            X_tensor = X_input # Assuming already tensor
 
         for name, model in self.models:
-            weight = weights.get(name, 1.0) if weights else 1.0
-            if name == 'LSTM':
-                model.eval()
-                with torch.no_grad(): p = model(tensor_seq).cpu().numpy()[0]
+            model.eval()
+            with torch.no_grad():
+                out = model(X_tensor).cpu().numpy()
+
+            if is_single:
+                preds[name] = out[0]
             else:
-                probs = np.array(model.predict_proba(flat_seq))
-                try: p = np.array([prob[0][1] for prob in probs])
-                except: p = np.array([prob[0][1] if len(prob[0]) > 1 else 0 for prob in probs])
-            total_probs += p * weight
-        return total_probs / len(self.models)
+                preds[name] = out
+        return preds
 
 # --- Helpers ---
 class SimpleLSTM(nn.Module):
@@ -348,6 +490,28 @@ class SimpleLSTM(nn.Module):
     def forward(self, x):
         _, (h, _) = self.lstm(x)
         return self.sig(self.fc(h[-1]))
+
+class SimpleGRU(nn.Module):
+    def __init__(self, i, h):
+        super().__init__()
+        self.gru = nn.GRU(i, h, batch_first=True)
+        self.fc = nn.Linear(h, 45)
+        self.sig = nn.Sigmoid()
+    def forward(self, x):
+        _, h = self.gru(x)
+        return self.sig(self.fc(h[-1]))
+
+class SimpleCNN(nn.Module):
+    def __init__(self, k):
+        super().__init__()
+        self.conv = nn.Conv1d(6, 32, kernel_size=k)
+        self.fc = nn.Linear(32 * (5 - k + 1), 45)
+        self.sig = nn.Sigmoid()
+    def forward(self, x):
+        x = x.permute(0, 2, 1)
+        x = torch.relu(self.conv(x))
+        x = x.view(x.size(0), -1)
+        return self.sig(self.fc(x))
 
 class TensorDataset(Dataset):
     def __init__(self, x, y): self.x, self.y = x, y
@@ -372,43 +536,31 @@ class GeneticEvolution:
         self.generations = generations
 
     def fitness(self, gene):
-        # Fitness based on ensemble probability sum + diversity
-        score = sum(self.probs[n-1] for n in gene)
-        return score
+        return sum(self.probs[n-1] for n in gene)
 
     def evolve(self):
-        print("🧬 Running Genetic Evolution (Full Logic)...")
+        print("🧬 Running Genetic Evolution...")
         pop = []
         nums = list(range(1, 46))
         w = self.probs / self.probs.sum()
-
-        # Initialize
         for _ in range(self.pop_size):
             pop.append(sorted(np.random.choice(nums, 6, replace=False, p=w)))
 
         for g in range(self.generations):
             scores = [(gene, self.fitness(gene)) for gene in pop]
             scores.sort(key=lambda x: x[1], reverse=True)
-
-            # Elitism
             elites = [s[0] for s in scores[:int(self.pop_size * 0.2)]]
             next_gen = elites[:]
-
-            # Crossover & Mutation
             while len(next_gen) < self.pop_size:
-                p1 = random.choice(elites)
-                p2 = random.choice(elites)
-                cut = random.randint(1, 5)
-                child = p1[:cut] + [n for n in p2 if n not in p1[:cut]]
+                p1, p2 = random.choice(elites), random.choice(elites)
+                child = sorted(list(set(p1[:3] + p2[3:])))
                 while len(child) < 6:
                     n = random.randint(1, 45)
                     if n not in child: child.append(n)
-                child = child[:6]
-                if random.random() < 0.05: # Mutation
-                    child[random.randint(0, 5)] = random.randint(1, 45)
-                next_gen.append(sorted(child))
-
+                next_gen.append(child[:6])
             pop = next_gen
+
+            # [Safety] Cooling
             if (g+1) % 50 == 0:
                 time.sleep(1.5)
                 print(f"   > Gen {g+1} Cooling...")
@@ -437,5 +589,12 @@ class GeminiStrategyFilter:
         except: return candidates[:10]
 
 if __name__ == "__main__":
+    # Force Run Mode for testing: python lotto_predict.py --force=Wed
+    import sys
+    force_day = None
+    for arg in sys.argv:
+        if arg.startswith("--force="):
+            force_day = arg.split("=")[1]
+
     orchestrator = HybridSniperOrchestrator()
-    orchestrator.run_pipeline()
+    orchestrator.dispatch_mission(force_day)
