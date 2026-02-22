@@ -15,3 +15,5 @@ __pycache__/
 *.txt
 *.log
 run_tracker.txt
+proposals/
+creds_lotto.json
