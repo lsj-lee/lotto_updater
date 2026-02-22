@@ -63,10 +63,24 @@ Gemini 1.5 Flash AI를 활용하여 웹상의 비정형 데이터를 정형 데�
 ---
 ---
 
-# 🛰️ Hybrid Sniper V5: 통합 분석 및 AI Taxonomy (Unified Analysis)
+# 🚀 Hybrid Sniper V5: Dual-Mode & AI Taxonomy (Final Edition)
 
-이 섹션은 시스템의 **최종 완성형**인 **통합 분석 엔진과 AI 기술 체계**에 대한 설명입니다.
-사용자님의 M5 MacBook 하드웨어를 보호하기 위해 분석 과정을 효율적으로 통합하고, 사용된 4가지 AI 기술을 명확히 정의합니다.
+이 섹션은 시스템의 **최종 완성형**인 **이원화 실행 모드 및 통합 분석 엔진**에 대한 설명입니다.
+사용자님의 M5 MacBook 하드웨어를 보호하면서도, 상황에 따라 유연하게 실행할 수 있는 두 가지 모드를 제공합니다.
+
+## 🔀 실행 모드 (Execution Modes)
+
+### 1. Manual Mode (매뉴얼 모드 - Full Cycle)
+-   **명령어**: `python lotto_predict.py`
+-   **설명**: 사령관님의 직접 명령으로 간주하여, **[데이터 수집 -> 통합 분석(ML+DL) -> 최종 저격]** 전 과정을 논스톱으로 수행합니다.
+-   **특징**: 단계별로 충분한 **하드웨어 쿨링 타임(5~10초)**이 자동으로 적용됩니다.
+
+### 2. Scheduled Mode (스케줄 모드 - Distributed)
+-   **명령어**: `python lotto_predict.py --scheduled`
+-   **설명**: 자동화 스케줄러(cron 등)에 의해 실행될 때 사용됩니다. 오늘 요일에 맞는 미션만 수행하고 종료합니다.
+    -   **일**: Sync Data
+    -   **월**: Total Analysis (ML/DL)
+    -   **수**: Final Strike
 
 ## 🧠 AI Taxonomy & Architecture (기술 체계)
 
@@ -93,34 +107,8 @@ Gemini 1.5 Flash AI를 활용하여 웹상의 비정형 데이터를 정형 데�
 
 ---
 
-## 📅 주간 통합 스케줄 (Unified Schedule)
-
-### 일요일 (Sunday 04:00): Data Sync
--   최신 로또 데이터를 수집하여 동기화합니다.
-
-### 월요일 (Monday 04:00): Total Analysis (통합 분석)
--   **Unsupervised**: 데이터 패턴 군집화 분석.
--   **Supervised (ML)**: RandomForest, XGBoost, KNN 등 머신러닝 그룹 학습.
--   **Cooling Pause**: 5초간 하드웨어 냉각.
--   **Supervised (DL)**: LSTM, CNN 등 딥러닝 그룹 학습.
--   **Output**: `state_total.pkl` 저장.
-
-### 수요일 (Wednesday 04:00): Final Strike
--   **Reinforcement**: PPO 가중치 계산.
--   **Evolutionary**: 유전 알고리즘(GA) 최적화.
--   **Generative**: Gemini 1.5 Pro 최종 필터링 및 리포트 작성.
-
 ## 🛡️ 안전 제1수칙 (Safety Protocols)
 
 1.  **자원 제한**: 전체 CPU 코어 중 2개를 시스템용으로 남겨두어 쾌적함을 유지합니다.
-2.  **Safety Pause**: ML과 DL 분석 사이, 그리고 유전 알고리즘 세대 간에 **휴식 시간(Sleep)**을 두어 M5 칩의 과열을 방지합니다.
+2.  **Safety Pause**: ML과 DL 분석 사이(5초), 전체 사이클 단계 간(10초), 유전 알고리즘 세대 간(1.5초)에 **휴식 시간**을 두어 M5 칩의 과열을 방지합니다.
 3.  **Memory Clean**: 단계별로 메모리를 강제 회수(GC)하여 안정성을 확보합니다.
-
-## 💻 실행 가이드
-
-터미널에서 아래 명령어를 입력하면 **오늘 요일에 맞는 미션**이 자동으로 수행됩니다.
-
-```bash
-python lotto_predict.py
-```
-> **Tip**: 월요일에 실행하면 ML과 DL 분석이 한 번에(중간 휴식 포함) 진행됩니다.

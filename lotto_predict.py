@@ -26,6 +26,7 @@ import google.generativeai as genai
 import requests
 from bs4 import BeautifulSoup
 import joblib
+import sys
 
 # Load environment variables
 load_dotenv()
@@ -75,28 +76,63 @@ class HybridSniperOrchestrator:
         genai.configure(api_key=api_key)
         return genai.GenerativeModel('gemini-1.5-pro')
 
+    # --- Execution Modes (Dual-Mode) ---
+    def run_full_cycle(self):
+        """
+        [Manual Mode] Non-stop Full Cycle Execution
+        1. Update Data
+        2. Total Analysis (ML + DL)
+        3. Final Strike (PPO + GA + Gemini)
+        * Includes Safety Pauses between stages.
+        """
+        print("\n" + "="*60)
+        print("🚀 사령관 직접 명령: 전 과정 통합 저격을 시작합니다 (Full-Cycle Mode)")
+        print("="*60 + "\n")
+
+        self.log_to_sheet("SYSTEM", "MANUAL_START", "Full Cycle Initiated by Commander.")
+
+        # 1. Update Data
+        print("\n[Phase 1] Data Synchronization")
+        self.mission_sunday_sync()
+
+        # Safety Pause
+        print("❄️ [Safety] Cooling M5 (5s)...")
+        time.sleep(5)
+
+        # 2. Total Analysis
+        print("\n[Phase 2] Unified Analysis (ML & DL)")
+        self.mission_monday_total_analysis()
+
+        # Safety Pause
+        print("❄️ [Safety] Cooling M5 (10s) before Final Strike...")
+        time.sleep(10)
+
+        # 3. Final Strike
+        print("\n[Phase 3] Final Strike (Strategy & Generation)")
+        self.mission_wednesday_final_strike()
+
+        print("\n✅ All Missions Accomplished successfully.")
+
     def dispatch_mission(self, force_day=None):
         """
-        Weekly Distributed Orchestration (Updated Phase 3.5)
-        Sunday: Sync Data
-        Monday: Total Analysis (ML + DL) with Safety Pauses
-        Wednesday: Final Strike (RL + GA + GenAI)
+        [Scheduled Mode] Distributed Execution based on Day of Week
         """
         day = force_day if force_day else datetime.datetime.now().strftime("%a")
-        print(f"🗓️ Mission Control: Today is {day}. Initiating protocols...")
+        print(f"🗓️ Mission Control (Scheduled Mode): Today is {day}. Initiating protocols...")
 
-        self.log_to_sheet("SYSTEM", "START", f"Mission started for {day}")
+        self.log_to_sheet("SYSTEM", "SCHEDULED", f"Mission started for {day}")
 
         if day == 'Sun':
             self.mission_sunday_sync()
         elif day == 'Mon':
-            self.mission_monday_total_analysis() # Unified Analysis
+            self.mission_monday_total_analysis()
         elif day == 'Wed':
             self.mission_wednesday_final_strike()
         else:
             print("💤 No scheduled mission for today. Resting M5.")
             self.log_to_sheet("SYSTEM", "SLEEP", "No mission scheduled.")
 
+    # --- Missions ---
     def mission_sunday_sync(self):
         print("☀️ Sunday Mission: Data Synchronization")
         self.update_data()
@@ -109,15 +145,13 @@ class HybridSniperOrchestrator:
         if len(full_data) < 100: return
 
         # [AI Taxonomy: Unsupervised Learning]
-        # Cluster data to find patterns before training
         print("🔍 [Unsupervised] Analyzing Data Patterns (Clustering & PCA)...")
         cluster_info = self.data_manager.analyze_patterns_unsupervised(full_data)
         self.log_to_sheet("Unsupervised", "INFO", f"Data Cluster Analysis: {cluster_info}")
 
-        # Split for PPO: Train on N-5, Predict Validation (N-5 to N) & Next (N+1)
         split_idx = len(full_data) - 5
         train_data = full_data[:split_idx]
-        val_data = full_data[split_idx:]
+        val_data = full_data[split_idx:] # List of lists
         val_history = full_data[split_idx-5:split_idx]
 
         # 1. Supervised Learning: ML Models (Classification)
@@ -125,11 +159,11 @@ class HybridSniperOrchestrator:
         X_train, y_train = self.data_manager.prepare_training_data(train_data)
         self.ensemble.train_group_a(X_train, y_train)
 
-        # Validation Preds (ML)
         X_val, _ = self.data_manager.prepare_training_data(val_history + val_data, lookback=5)
-        val_preds_a = self.ensemble.predict_group_a(X_val[-5:])
+        # Fix: Ensure X_val is sufficient length or handle gracefully.
+        # prepare_training_data returns sequence for each target in val_data (length 5)
+        val_preds_a = self.ensemble.predict_group_a(X_val)
 
-        # Full Train & Next Pred (ML)
         X_full, y_full = self.data_manager.prepare_training_data(full_data)
         self.ensemble.train_group_a(X_full, y_full)
         last_seq = full_data[-5:]
@@ -143,12 +177,11 @@ class HybridSniperOrchestrator:
 
         # 2. Supervised Learning: DL Models (Neural Networks / Feature Extraction)
         print("🧠 [Supervised] Training Group B (DL/Feature Extraction)...")
-        X_train_dl, y_train_dl = self.data_manager.prepare_training_data(train_data) # Re-gen for clarity
+        X_train_dl, y_train_dl = self.data_manager.prepare_training_data(train_data)
         self.ensemble.train_group_b(X_train_dl, y_train_dl)
 
-        val_preds_b = self.ensemble.predict_group_b(X_val[-5:])
+        val_preds_b = self.ensemble.predict_group_b(X_val)
 
-        # Full Train & Next Pred (DL)
         self.ensemble.train_group_b(X_full, y_full)
         X_next_tensor = torch.tensor(last_seq, dtype=torch.float32).unsqueeze(0).to(DEVICE)
         next_preds_b = self.ensemble.predict_group_b(X_next_tensor, is_single=True)
@@ -157,7 +190,7 @@ class HybridSniperOrchestrator:
         state = {
             'val_preds': {**val_preds_a, **val_preds_b},
             'next_preds': {**next_preds_a, **next_preds_b},
-            'val_targets': val_data # List of lists
+            'val_targets': val_data
         }
         joblib.dump(state, STATE_TOTAL_FILE)
         print(f"✅ Total Analysis Saved to {STATE_TOTAL_FILE}")
@@ -171,7 +204,7 @@ class HybridSniperOrchestrator:
         print("🚀 Wednesday Mission: Final Strike (RL + GA + GenAI)")
 
         if not os.path.exists(STATE_TOTAL_FILE):
-            print("❌ Missing State File!")
+            print("❌ Missing State File! Run Analysis first.")
             return
 
         state = joblib.load(STATE_TOTAL_FILE)
@@ -183,7 +216,6 @@ class HybridSniperOrchestrator:
         weights = self.calculate_ppo_weights(all_val_preds, val_targets)
         print(f"📊 Model Weights: {weights}")
 
-        # Combine Predictions
         all_next_preds = state['next_preds']
         final_probs = np.zeros(45)
         for name, pred_probs in all_next_preds.items():
@@ -216,7 +248,12 @@ class HybridSniperOrchestrator:
             score = 0
             for i in range(len(targets)):
                 target_set = set(targets[i])
-                top_15 = preds[i].argsort()[::-1][:15]
+                # Check shape: preds[i] might be (45,) or (1, 45) or list
+                if isinstance(preds, list): p = preds[i]
+                elif len(preds.shape) > 1: p = preds[i]
+                else: p = preds # Should not happen if logic correct
+
+                top_15 = p.argsort()[::-1][:15]
                 hits = len(target_set & set(top_15))
                 score += hits
             weights[name] = max(0.1, score)
@@ -303,7 +340,8 @@ class LottoDataManager:
     def analyze_patterns_unsupervised(self, full_data):
         # Use KMeans to cluster recent winning numbers
         try:
-            data = np.array([d['nums'] for d in full_data])
+            # full_data is a list of lists (numbers), not dicts
+            data = np.array(full_data)
             # Normalize for clustering
             scaler = StandardScaler()
             scaled_data = scaler.fit_transform(data)
@@ -322,7 +360,12 @@ class LottoDataManager:
     def prepare_training_data(self, data_source, lookback=5):
         X, y = [], []
         if len(data_source) <= lookback: return np.array([]), np.array([])
-        numbers = data_source if isinstance(data_source[0], list) else [d['nums'] for d in data_source]
+        # Handle list of dicts OR list of lists
+        if isinstance(data_source[0], dict):
+            numbers = [d['nums'] for d in data_source]
+        else:
+            numbers = data_source
+
         for i in range(lookback, len(numbers)):
             seq = numbers[i-lookback:i]
             target = numbers[i]
@@ -548,9 +591,14 @@ class GeminiStrategyFilter:
         except: return candidates[:10]
 
 if __name__ == "__main__":
-    import sys
-    force_day = None
+    # Check arguments
+    is_scheduled = False
     for arg in sys.argv:
-        if arg.startswith("--force="): force_day = arg.split("=")[1]
+        if arg == "--scheduled":
+            is_scheduled = True
+
     orchestrator = HybridSniperOrchestrator()
-    orchestrator.dispatch_mission(force_day)
+    if is_scheduled:
+        orchestrator.dispatch_mission() # Day-based
+    else:
+        orchestrator.run_full_cycle() # Manual Full Cycle
