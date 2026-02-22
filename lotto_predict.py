@@ -322,6 +322,9 @@ class LottoTrainer:
 
         print("✅ cGAN Training Complete. Generating Augmentation Data...")
 
+        # Switch to eval mode to avoid BatchNorm error with single samples
+        generator.eval()
+
         aug_X_time = []
         aug_X_logic = []
         aug_y = []
