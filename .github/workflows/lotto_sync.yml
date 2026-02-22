@@ -2,12 +2,16 @@ name: Lotto Data Sync
 
 on:
   schedule:
-    # 매주 토요일 21:00 KST (12:00 UTC) 실행
-    - cron: '0 12 * * 6'
+    # ⚠️ [시간 설정 주의] GitHub Actions 서버는 UTC(협정 세계시)를 기준으 작동합니다.
+    # 한국 시간(KST, UTC+9) 일요일 오전 4시(04:00)에 실행하려면,
+    # UTC 기준으로는 '9시간 전'인 토요일 오후 7시(19:00)로 설정해야 합니다.
+    # 계산식: 04:00 (Sun, KST) - 9시간 = 19:00 (Sat, UTC)
+    - cron: '0 19 * * 6'
+
   workflow_dispatch:
     inputs:
       force_run:
-        description: 'Force run regardless of schedule check'
+        description: '스케줄 무시하고 즉시 강제 실행 (True/False)'
         required: false
         default: true
         type: boolean
@@ -15,7 +19,7 @@ on:
 jobs:
   sync_lotto_data:
     runs-on: ubuntu-latest
-
+    
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
@@ -39,7 +43,7 @@ jobs:
     - name: Run Lotto Updater
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        # 수동 실행(workflow_dispatch)일 경우 force_run 값을 전달, 아니면 false
+        # 수동 실행(workflow_dispatch)일 경우 force_run 값을 전달, 스케줄 실행이면 false
         MANUAL_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.force_run || 'false' }}
       run: |
         python lotto_updater.py
