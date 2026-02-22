@@ -38,8 +38,8 @@ BATCH_SIZE = 32
 EPOCHS_MAIN = 200
 EPOCHS_CGAN = 100
 LEARNING_RATE = 0.001
-SEQ_SCALES = [10, 50, 100, 200, 300, 500, 700, 1000] # Full 8 Scales
-MAX_SEQ_LEN = 1000
+SEQ_SCALES = [10, 50, 100, 200, 300, 500, 700, 900] # Full 8 Scales (Adjusted for <1000 rounds)
+MAX_SEQ_LEN = 900
 FEATURE_DIM_LOGIC = 3 # Sum, Odd/Even, AC Index
 
 # --- Helper Functions ---
