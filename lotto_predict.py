@@ -86,7 +86,7 @@ else:
 
 # Hardware Safety: Core Limitation
 TOTAL_CORES = multiprocessing.cpu_count()
-USED_CORES = max(1, TOTAL_CORES - 2)
+USED_CORES = max(1, 6) # Enforced limit as requested: USED_CORES=6 (or max available if less, though M5 has more)
 torch.set_num_threads(USED_CORES)
 
 
@@ -206,9 +206,10 @@ class HybridSniperOrchestrator:
         self.ensemble = EnsemblePredictor()
 
     def _authenticate_google_services(self):
+        # [Phase 3] Precise Scopes for Docs & Drive
         scope = [
             "https://spreadsheets.google.com/feeds",
-            "https://www.googleapis.com/auth/drive",
+            "https://www.googleapis.com/auth/drive.file",
             "https://www.googleapis.com/auth/documents"
         ]
         if not os.path.exists(self.creds_file):
@@ -234,7 +235,7 @@ class HybridSniperOrchestrator:
         self.log_to_sheet("SYSTEM", "MANUAL_START", "Full Cycle Initiated by Commander.")
 
         # 1. Update Data
-        print("\n[Phase 1] Data Synchronization (Dual-Strike)")
+        print("\n[Phase 1] Data Synchronization (Intelligent Sync)")
         self.mission_sunday_sync()
 
         # Safety Pause
@@ -475,22 +476,32 @@ class HybridSniperOrchestrator:
 
     def update_data(self):
         print("📡 Checking for Data Updates...")
-        last_round = self.data_manager.get_latest_recorded_round()
-        expected_round = self.data_manager.get_current_expected_round()
-        if last_round >= expected_round:
-            print("✅ Data is up to date.")
+        last_recorded_round = self.data_manager.get_latest_recorded_round()
+
+        # [Efficient Sync] Check Real-time Latest Round from Portal first
+        real_latest_round = self.get_real_latest_round_from_portal()
+
+        if not real_latest_round:
+            # Fallback to calculation if portal check fails
+            real_latest_round = self.data_manager.get_current_expected_round()
+            print(f"⚠️ Portal check failed. Using calculated expected round: {real_latest_round}")
+
+        if last_recorded_round >= real_latest_round:
+            print(f"✅ Data is up to date (Round {last_recorded_round}). No sync needed.")
             return
 
-        # [Sync Safety] Retry Logic
+        print(f"🔄 Update Required: Local({last_recorded_round}) vs Real({real_latest_round})")
+
+        # [Sync Safety] Retry Logic - Only for missing rounds
         failures = 0
-        for r in range(last_round + 1, expected_round + 1):
+        for r in range(last_recorded_round + 1, real_latest_round + 1):
             if failures >= 3:
                 print("❌ Too many fetch failures. Aborting Sync to prevent hanging.")
                 break
 
             print(f"🔍 Fetching Round {r}...")
 
-            # [Dual-Strike] Phase 1 Data Collection
+            # [Dual-Strike] Phase 1 Data Collection (Scraping Only)
             data = self.fetch_lotto_data_dual_strike(r)
 
             if data:
@@ -502,44 +513,36 @@ class HybridSniperOrchestrator:
                 print(f"⚠️ Failed to fetch round {r}. (Attempts: {failures}/3)")
 
             # [Rate Limit Defense]
-            time.sleep(0.5)
+            time.sleep(1)
+
+    def get_real_latest_round_from_portal(self):
+        """
+        [Phase 1] Scrape the latest round number from a public portal (Naver)
+        to determine if sync is actually needed.
+        """
+        try:
+            url = "https://search.naver.com/search.naver?query=로또당첨번호"
+            response = requests.get(url, headers=REAL_BROWSER_HEADERS, timeout=5)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            # Extract round number (e.g., "1212회")
+            title = soup.select_one('a._lotto-btn-current')
+            if title:
+                text = title.get_text()
+                return int(text.replace('회', '').strip())
+            return None
+        except Exception:
+            return None
 
     def fetch_lotto_data_dual_strike(self, round_no):
         """
         [Phase 1] Dual-Strike Mechanism
-        1. Primary: Chameleon API Call (Official API with Mac Headers)
-        2. Fallback: Search Scraping + Gemini Parsing (Intelligent Crawler)
+        1. Primary: Intelligent Search Scraping (Naver + Gemini)
+        (API removed as per commander's order to prevent blocking)
         """
-        # --- Strike 1: Chameleon API ---
-        try:
-            url = f"https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo={round_no}"
-            response = requests.get(url, headers=REAL_BROWSER_HEADERS, timeout=5)
-
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('returnValue') == 'success':
-                    print(f"   ✅ [Strike 1] Official API Success (Round {round_no})")
-                    return {
-                        'drwNo': data['drwNo'],
-                        'drwNoDate': data['drwNoDate'],
-                        'drwtNo1': data['drwtNo1'],
-                        'drwtNo2': data['drwtNo2'],
-                        'drwtNo3': data['drwtNo3'],
-                        'drwtNo4': data['drwtNo4'],
-                        'drwtNo5': data['drwtNo5'],
-                        'drwtNo6': data['drwtNo6'],
-                        'bnusNo': data['bnusNo'],
-                        'firstPrzwnerCo': data['firstPrzwnerCo'],
-                        'firstAccumamnt': data['firstAccumamnt'],
-                        'firstPrzwnerStore': ''
-                    }
-        except Exception as e:
-            print(f"   ⚠️ [Strike 1] API Failed: {e}")
-
-        # --- Strike 2: Fallback (Search Scraping) ---
-        print(f"   🚀 [Strike 2] Initiating Fallback: Intelligent Search Scraping...")
+        # --- Strike 1: Fallback (Search Scraping) ---
+        print(f"   🚀 [Strike 1] Initiating Intelligent Search Scraping...")
         if not self.client or not self.model_name:
-            print("   ❌ Fallback Aborted: Gemini Client not ready.")
+            print("   ❌ Scraping Aborted: Gemini Client not ready.")
             return None
 
         search_url = f"https://search.naver.com/search.naver?query=로또+{round_no}회+당첨번호"
@@ -564,14 +567,14 @@ class HybridSniperOrchestrator:
             data = json.loads(json_str)
 
             if int(data.get('drwNo', 0)) == round_no:
-                print(f"   🪂 [Strike 2] Fallback Scraping Success (Round {round_no})")
+                print(f"   ✅ [Strike 1] Scraping Success (Round {round_no})")
                 return data
             else:
-                print(f"   ❌ [Strike 2] AI Extraction Mismatch.")
+                print(f"   ❌ [Strike 1] AI Extraction Mismatch.")
                 return None
 
         except Exception as e:
-            print(f"   ❌ [Strike 2] Fallback Failed: {e}")
+            print(f"   ❌ [Strike 1] Scraping Failed: {e}")
             return None
 
     def update_report(self, games):
