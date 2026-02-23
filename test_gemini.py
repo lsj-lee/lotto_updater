@@ -1,82 +1,150 @@
 import os
-import requests
+import sys
+import time
+
+# [Execution Guide] Phase 1: Pre-flight Check
+print("\n" + "="*60)
+print("🚀 [Sniper V5] Gemini API Diagnostic Tool")
+print("   - Required Library: google-genai (v1.0+)")
+print("   - Command: pip install google-genai python-dotenv")
+print("="*60 + "\n")
+
+# Try importing the new SDK
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:
+    print("❌ Critical: 'google-genai' library not found.")
+    print("💡 Please run: pip install google-genai")
+    sys.exit(1)
+
 from dotenv import load_dotenv
 
-# 🛰️ Sniper V5 - 지휘소 환경 변수 로드
-load_dotenv()
-api_key = os.getenv("GEMINI_API_KEY")
+def validate_api_key(key):
+    """
+    [Security] Validates API Key format without exposing the full key.
+    """
+    if not key:
+        return False, "Key is empty or None."
 
-def find_and_strike_models():
-    print("=" * 60)
-    print("🚀 [Sniper V5] Gemini API: Search & Strike Verification")
-    print("   - Strategy: 1단계 탐색 -> 2단계 실전 사격 검증")
-    print("=" * 60)
+    if key.strip() != key:
+        return False, "Key has leading/trailing whitespace. Check .env file."
 
-    if not api_key:
-        print("❌ [ERROR] API Key Missing. .env 파일을 확인하세요.")
-        return
+    if len(key) < 30: # Heuristic length check
+        return False, f"Key seems too short ({len(key)} chars). Expected > 30."
 
-    print("\n1️⃣ [1단계] 구글 본부 스캔: 텍스트 생성(generateContent) 가능 모델 탐색 중...")
-    url_list = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-    
+    # Check for non-ascii chars (encoding issues)
+    if not key.isascii():
+         return False, "Key contains non-ASCII characters. Check file encoding."
+
+    return True, "Valid Format"
+
+def main():
+    print("🛰️ Initializing System Diagnostics...")
+
+    # 1. Environment Variable Verification
+    load_dotenv()
+    api_key = os.getenv("GEMINI_API_KEY")
+
+    print(f"\n🔑 API Key Verification:")
+    is_valid, message = validate_api_key(api_key)
+
+    if not is_valid:
+        print(f"   ❌ {message}")
+        print("   ⚠️ Stopping Execution. Please fix .env file.")
+        sys.exit(1)
+    else:
+        masked_key = f"{api_key[:5]}...{api_key[-5:]}"
+        print(f"   ✅ Key Format OK ({masked_key})")
+
+    # Initialize Client
     try:
-        res_list = requests.get(url_list)
-        if res_list.status_code != 200:
-            print(f"❌ 서버 접근 거부 (HTTP {res_list.status_code}). 권한이나 키 설정을 확인하세요.")
-            print("응답:", res_list.text)
-            return
-            
-        data = res_list.json()
-        all_models = data.get('models', [])
-        
-        # 이름에 gemini가 들어가고 텍스트 생성을 지원하는 모델만 추출
-        target_candidates = []
-        for m in all_models:
-            name = m.get('name', '')
-            methods = m.get('supportedGenerationMethods', [])
-            if 'generateContent' in methods and 'gemini' in name.lower():
-                target_candidates.append(name)
-                
-        if not target_candidates:
-            print("⚠️ 타격 가능한 참모(모델) 후보를 하나도 찾지 못했습니다.")
-            return
-            
-        print(f"✅ 총 {len(target_candidates)}명의 참모 후보 발견. 즉시 2단계 검증으로 넘어갑니다.\n")
-        
-        print("2️⃣ [2단계] 실전 통신 검증: 각 참모에게 직접 교신(Hello)을 시도합니다...")
-        
-        verified_working_models = []
-        
-        for model_name in target_candidates:
-            # 출력 이름 간소화 (예: models/gemini-1.5-flash -> gemini-1.5-flash)
-            short_name = model_name.split('/')[-1] if '/' in model_name else model_name
-            print(f"🎯 타격 시도: [{short_name}] ...", end=" ")
-            
-            # 실제 텍스트 생성을 요청하는 POST 통신
-            url_generate = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
-            payload = {
-                "contents": [{"parts": [{"text": "Hello, this is a connection test."}]}]
-            }
-            
-            res_gen = requests.post(url_generate, json=payload)
-            
-            if res_gen.status_code == 200:
-                print("✅ 100% 교신 성공! (응답 확인됨)")
-                verified_working_models.append(model_name)
-            else:
-                print(f"❌ 연결 실패 (오류 코드: {res_gen.status_code})")
-        
-        print("\n" + "=" * 60)
-        print("🏆 [최종 작전 결과: 100% 작동이 보장된 최정예 참모 목록]")
-        if verified_working_models:
-            for idx, wm in enumerate(verified_working_models, 1):
-                print(f"   {idx}. {wm}")
-            print("\n🎉 사령관님, 이 목록에 있는 참모들은 지금 당장 로또 분석에 투입할 수 있는 실제 전력입니다!")
-        else:
-            print("⚠️ 안타깝게도 서류상 후보는 있었으나, 실제로 무전에 응답하는 참모가 없습니다. (API 승인 지연 중일 확률 99%)")
-            
+        client = genai.Client(api_key=api_key)
+        print("   ✅ Client Initialized.")
     except Exception as e:
-        print(f"❌ 물리적 네트워크 에러 발생: {e}")
+        print(f"   ❌ Client Initialization Failed: {e}")
+        sys.exit(1)
+
+    # 2. Model List Scan (Detailed)
+    print("\n🔍 Scanning for available Gemini models...")
+    print("-" * 60)
+    print(f"{'Model Name':<40} | {'Status':<20}")
+    print("-" * 60)
+
+    available_models = []
+    scan_failed = False
+
+    try:
+        # Paging through models
+        # Note: In v1.0+, client.models.list() returns an iterator of Model objects
+        for model in client.models.list():
+            # Filter for generation capable models
+            # Attributes might vary, check capability safely
+            methods = getattr(model, 'supported_generation_methods', [])
+
+            if 'generateContent' in methods:
+                name = model.name.replace('models/', '')
+                print(f"{name:<40} | {'Ready 🟢':<20}")
+                available_models.append(name)
+            else:
+                # Debug: Show other models too? No, keep it clean.
+                pass
+
+    except Exception as e:
+        print(f"⚠️ Model List Error: {e}")
+        scan_failed = True
+        # Often purely permission errors on 'List' but 'Generate' might work
+        if "PERMISSION_DENIED" in str(e):
+            print("   -> Tip: Your API Key might lack 'List Models' permission but allow generation.")
+        elif "INVALID_ARGUMENT" in str(e):
+             print("   -> Tip: API Key might be invalid or project restriction.")
+
+    print("-" * 60)
+
+    # 3. Force Fire Mechanism
+    # If list is empty or failed, we MUST try a known model directly.
+    target_models = available_models if available_models else ['gemini-1.5-flash', 'gemini-1.5-pro']
+
+    if not available_models:
+        print("\n⚠️ No models discovered via List API.")
+        print("🚀 Initiating FORCE FIRE protocol on fallback models...")
+    else:
+        print(f"\n🎯 {len(available_models)} models found. Selecting best candidate...")
+        # Priority sort
+        def model_priority(name):
+            if 'gemini-2.0' in name: return 4
+            if 'gemini-1.5-pro' in name: return 3
+            if 'gemini-1.5-flash' in name: return 2
+            return 1
+        target_models.sort(key=model_priority, reverse=True)
+
+    # 4. Firing Test
+    best_model = target_models[0]
+    print(f"\n💥 Executing Firing Test on target: [{best_model}]")
+
+    try:
+        response = client.models.generate_content(
+            model=best_model,
+            contents="Hello, Commander! Status Report."
+        )
+
+        print("\n📝 Mission Response:")
+        print(f"> {response.text.strip()}")
+
+        print("\n" + "="*60)
+        print(f"✅ SYSTEM OPERATIONAL. Model [{best_model}] is active.")
+        print("="*60 + "\n")
+
+    except Exception as e:
+        print(f"\n❌ Firing Test Failed on {best_model}:")
+        print(f"   Error: {e}")
+        print("\n💡 Troubleshooting:")
+        if "404" in str(e) or "NOT_FOUND" in str(e):
+             print("   - Model name might be incorrect or you don't have access.")
+        elif "400" in str(e) or "INVALID_ARGUMENT" in str(e):
+             print("   - API Key is likely invalid or project billing is disabled.")
+        elif "429" in str(e):
+             print("   - Quota exceeded. Slow down or check billing.")
 
 if __name__ == "__main__":
-    find_and_strike_models()
+    main()

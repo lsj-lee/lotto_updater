@@ -21,19 +21,6 @@ from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 import requests
-
-try:
-    import xgboost as xgb
-except ImportError:
-    print("⚠️ Missing XGBoost. Run: pip install xgboost")
-    xgb = None
-
-try:
-    import catboost as cb
-except ImportError:
-    print("⚠️ Missing CatBoost. Run: pip install catboost")
-    cb = None
-from bs4 import BeautifulSoup
 import joblib
 import sys
 
@@ -45,6 +32,21 @@ except ImportError:
     print("❌ Critical Dependency Missing: 'google-genai'")
     print("💡 Please run: pip install google-genai")
     sys.exit(1)
+
+# Check for XGBoost/CatBoost (Optional)
+try:
+    import xgboost as xgb
+except ImportError:
+    print("⚠️ Missing XGBoost. Run: pip install xgboost")
+    xgb = None
+
+try:
+    import catboost as cb
+except ImportError:
+    print("⚠️ Missing CatBoost. Run: pip install catboost")
+    cb = None
+
+from bs4 import BeautifulSoup
 
 # Load environment variables
 load_dotenv()
@@ -58,7 +60,7 @@ STATE_A_FILE = 'state_A.pkl'
 STATE_B_FILE = 'state_B.pkl'
 STATE_TOTAL_FILE = 'state_total.pkl'
 
-# Device Configuration
+# Hardware Safety: Device Configuration
 if torch.backends.mps.is_available():
     DEVICE = torch.device("mps")
     print("🚀 Deep Learning: Running on Mac M-Series GPU (MPS)")
@@ -66,10 +68,100 @@ else:
     DEVICE = torch.device("cpu")
     print("⚠️ Deep Learning: Running on CPU")
 
-# Hardware Safety
+# Hardware Safety: Core Limitation
 TOTAL_CORES = multiprocessing.cpu_count()
 USED_CORES = max(1, TOTAL_CORES - 2)
 torch.set_num_threads(USED_CORES)
+
+
+# --- [Scout Logic] Intelligent Model Discovery ---
+def get_verified_model(api_key):
+    """
+    [Scout Function] Directly probes Google's REST API to find the most capable active model.
+    Prioritizes: 3.x > 2.x > 1.5 Pro > 1.5 Flash
+    """
+    print("\n🛰️ [Scout] Initiating Deep Space Scan for Intelligence Models...")
+
+    if not api_key:
+        print("❌ API Key is missing.")
+        return None
+
+    # 1. Fetch available models via REST (Bypassing SDK limitations)
+    list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        response = requests.get(list_url)
+        if response.status_code != 200:
+            print(f"⚠️ Model List Scan Failed: HTTP {response.status_code}")
+            return None
+
+        models_data = response.json().get('models', [])
+        candidates = []
+
+        # Filter for 'generateContent' capable models
+        for m in models_data:
+            if 'generateContent' in m.get('supportedGenerationMethods', []):
+                candidates.append(m['name'].replace('models/', ''))
+
+        if not candidates:
+            print("⚠️ No generation-capable models found.")
+            return None
+
+    except Exception as e:
+        print(f"⚠️ Network Error during Scan: {e}")
+        return None
+
+    # 2. Smart Sorting (Intelligence Hierarchy)
+    # We define a score for each model to sort them by capability
+    def model_intelligence_score(name):
+        score = 0
+        name = name.lower()
+
+        # Generation Score
+        if 'gemini-3' in name: score += 5000
+        elif 'gemini-2' in name: score += 4000
+        elif 'gemini-1.5' in name: score += 3000
+        elif 'gemini-1.0' in name or 'gemini-pro' in name: score += 1000
+
+        # Variant Score
+        if 'ultra' in name: score += 500
+        elif 'pro' in name: score += 300
+        elif 'flash' in name: score += 100
+
+        # Recency Score
+        if 'latest' in name: score += 50
+        if 'exp' in name: score += 20  # Experimental models often powerful but unstable
+
+        return score
+
+    candidates.sort(key=model_intelligence_score, reverse=True)
+    print(f"📋 Candidate List (Top 5): {candidates[:5]}")
+
+    # 3. Real-World Firing Test (Ping)
+    for model_name in candidates:
+        print(f"   👉 Testing connection to [{model_name}]...", end="")
+        test_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        payload = {"contents": [{"parts": [{"text": "Hello"}]}]}
+
+        try:
+            # Short timeout, we need speed
+            start_t = time.time()
+            ping = requests.post(test_url, json=payload, headers={'Content-Type': 'application/json'}, timeout=5)
+            elapsed = time.time() - start_t
+
+            if ping.status_code == 200:
+                print(f" ✅ ONLINE (Latency: {elapsed:.2f}s)")
+                return model_name
+            elif ping.status_code == 429:
+                print(f" ⚠️ BUSY (Rate Limit). Skipping.")
+                time.sleep(1) # Backoff
+            else:
+                print(f" ❌ FAILED (HTTP {ping.status_code})")
+
+        except Exception:
+            print(" ❌ ERROR (Timeout/Network)")
+
+    return None
+
 
 # --- Integrated Orchestrator Class ---
 class HybridSniperOrchestrator:
@@ -77,7 +169,22 @@ class HybridSniperOrchestrator:
         self.creds_file = CREDS_FILE
         self.sheet_name = SHEET_NAME
         self.gc = self._authenticate_google_sheets()
-        self.client, self.model_name = self._setup_gemini()
+
+        # [Dynamic Integration] Use the Scout Function
+        api_key = os.getenv("GEMINI_API_KEY")
+        self.model_name = get_verified_model(api_key)
+
+        if self.model_name:
+            print(f"\n🎯 [Target Locked] System will use: {self.model_name}")
+            try:
+                self.client = genai.Client(api_key=api_key)
+            except:
+                print("⚠️ Client Init Failed despite verified model.")
+                self.client = None
+        else:
+             print("\n⚠️ [Critical] All AI Models Unresponsive. Switching to Manual Fallback.")
+             self.client = None
+
         self.data_manager = LottoDataManager(self.gc, self.sheet_name)
         self.ensemble = EnsemblePredictor()
 
@@ -87,52 +194,6 @@ class HybridSniperOrchestrator:
             raise FileNotFoundError(f"Credential file {self.creds_file} not found.")
         creds = ServiceAccountCredentials.from_json_keyfile_name(self.creds_file, scope)
         return gspread.authorize(creds)
-
-    def _setup_gemini(self):
-        """
-        [Dynamic Model Discovery]
-        Lists available models via API and selects the best one based on priority.
-        Priority: Flash > Pro Latest > Pro
-        """
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            print("⚠️ GEMINI_API_KEY missing.")
-            return None, None
-
-        client = genai.Client(api_key=api_key)
-        working_model = None
-
-        print("🤖 [Gemini Setup] Discovering available models...")
-
-        # [Optimization] Priority: 2.0 > 1.5 Pro > 1.5 Flash (as requested)
-        candidate_models = [
-            'gemini-2.0-flash-exp',
-            'gemini-1.5-pro',
-            'gemini-1.5-pro-latest',
-            'gemini-1.5-flash',
-            'gemini-1.5-flash-latest',
-            'gemini-pro'
-        ]
-
-        for model in candidate_models:
-            try:
-                # Simple ping to check availability
-                response = client.models.generate_content(
-                    model=model,
-                    contents="Ping"
-                )
-                if response.text:
-                    print(f"✅ Connected to Gemini Model: {model}")
-                    working_model = model
-                    break
-            except Exception:
-                continue
-
-        if not working_model:
-            print("❌ All Gemini models failed. Switching to Manual Input Mode for Strategy.")
-            return client, None
-
-        return client, working_model
 
     # --- Execution Modes (Dual-Mode) ---
     def run_full_cycle(self):
@@ -278,6 +339,9 @@ class HybridSniperOrchestrator:
         gemini_filter = GeminiStrategyFilter(self.client, self.model_name)
         final_games = gemini_filter.filter_candidates(elite_candidates, last_seq)
 
+        # [Rate Limit Defense] Post-Prediction Cooling
+        time.sleep(3)
+
         self.update_report(final_games)
         print("✅ Final Strike Complete.")
 
@@ -327,7 +391,9 @@ class HybridSniperOrchestrator:
             else:
                 failures += 1
                 print(f"⚠️ Failed to fetch round {r}. (Attempts: {failures}/3)")
-            time.sleep(2)
+
+            # [Rate Limit Defense]
+            time.sleep(3)
 
     def fetch_lotto_data_via_gemini(self, round_no):
         """
@@ -345,6 +411,7 @@ class HybridSniperOrchestrator:
 
             prompt = f"Extract Lotto data for round {round_no} from text into JSON. Fields: drwNo(int), drwtNo1..6(int), bnusNo(int), firstAccumamnt(int), firstPrzwnerCo(int), drwNoDate(str YYYY-MM-DD). Text: {text}"
 
+            # [SDK v1.0+] Correct usage
             response = self.client.models.generate_content(
                 model=self.model_name,
                 contents=prompt
@@ -631,8 +698,6 @@ def train_torch_model(model, loader):
             loss.backward()
             opt.step()
         if (e+1) % 10 == 0:
-            # Simple progress logging
-            # print(f"      - Epoch {e+1}/{epochs}") # Verbose off for speed
             pass
 
 class GeneticEvolution:
