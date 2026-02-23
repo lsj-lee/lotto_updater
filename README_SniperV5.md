@@ -1,111 +1,98 @@
-# Hybrid Sniper V5: 지능형 데이터 자동화 패키지 (Phase 1)
+# 🎱 Hybrid Sniper V5: 자율 진화형 무인 로또 분석 기지
 
-이 문서는 Hybrid Sniper V5 시스템의 핵심인 **데이터 자동 수집 및 관리 엔진**에 대한 설명서입니다.  
-Gemini 1.5 Flash AI를 활용하여 웹상의 비정형 데이터를 정형 데이터로 변환하고, 구글 시트를 자동으로 업데이트합니다.
+> **"Apple Silicon (M5) 환경에 최적화된, 스스로 생각하고 휴식하는 완전 무인 AI 요새"**
 
----
-
-## 📂 파일 목록 및 역할
-
-### 1. `lotto_updater.py` (핵심 엔진)
-- **역할**: 로또 당첨 결과를 웹에서 수집하고, Gemini AI를 통해 JSON으로 파싱하여 구글 시트에 저장합니다.
-- **주요 기능**:
-  - `Model Explorer`: 사용 가능한 Gemini 모델을 탐색하고 최적의 모델(Gemini 1.5 Flash)을 선택합니다.
-  - `fetch_lotto_data_via_gemini(round_no)`: 특정 회차의 검색 결과를 크롤링하고 AI에게 파싱을 요청합니다.
-  - `update_sheet(data)`: 파싱된 데이터를 구글 시트('로또 max')에 추가합니다.
-  - `check_schedule()`: `schedule_config.json`과 현재 시간을 비교하여 실행 여부를 결정합니다.
-  - `log_execution()`: 실행 결과와 상태를 'Log' 시트에 기록합니다.
-
-### 2. `schedule_config.json` (설정 파일)
-- **역할**: 사용자가 실행 요일과 시간을 관리하는 파일입니다.
-- **기본 설정**: 매주 토요일 21:00 (KST) 실행.
-- **활용**: 스크립트 실행 시 이 파일을 참조하여 현재 시간이 실행 허용 범위(Window) 내인지 확인합니다.
-
-### 3. `.github/workflows/lotto_sync.yml` (자동화 설정)
-- **역할**: GitHub Actions를 통해 클라우드 환경에서 정해진 시간에 스크립트를 실행합니다.
-- **트리거**:
-  - `schedule`: 매주 토요일 12:00 UTC (한국 시간 21:00) 자동 실행.
-  - `workflow_dispatch`: GitHub 웹에서 수동으로 즉시 실행 가능 (Force Run).
+**Sniper V5**는 단순한 자동화 스크립트가 아닙니다.
+**Gemini 2.5 Flash**를 지휘관으로 하는 이 시스템은 스스로 자신의 상태를 진단하고, 하드웨어 부하를 감지하여 생존하며, 과거의 실패로부터 더 나은 질문(Prompt)을 찾아내는 **살아있는 유기체**처럼 작동합니다.
 
 ---
 
-## 🛠️ 업데이트 가이드 (유지보수)
+## 🏛️ 프로젝트 개요 (Overview)
 
-### 새로운 데이터를 추가 수집하고 싶을 때
-1. **Gemini 프롬프트 수정**: `lotto_updater.py`의 `fetch_lotto_data_via_gemini` 함수 내 `prompt` 변수를 수정하여 원하는 데이터 필드를 요청하세요.
-2. **JSON 파싱 로직 확인**: Gemini가 반환하는 JSON 키가 프롬프트 요청과 일치하는지 확인하세요.
-3. **시트 저장 로직 수정**: `update_sheet` 함수에서 `ws.append_row`에 전달되는 리스트(`row`)에 새로운 필드를 추가하세요. (구글 시트 헤더도 맞춰야 합니다.)
+이 시스템은 **한국 표준시(KST) 매일 새벽 02:00**에 깨어나, 일요일을 시작으로 하는 주간 작전 사이클을 수행합니다.
+서버 상태나 네트워크 문제로 작전이 중단되더라도, 다음 날 깨어났을 때 `sniper_state.json`을 통해 **끊긴 지점부터 즉시 이어하기(Smart Catch-up)**를 수행합니다.
 
-### 실행 스케줄을 변경하고 싶을 때
-1. **GitHub Actions**: `.github/workflows/lotto_sync.yml`의 `cron` 값을 수정하세요. (UTC 기준임에 주의)
-2. **로컬/스크립트 검증**: `schedule_config.json`의 `day_of_week`와 `hour`를 수정하세요.
+- **메인 지휘관 (Commander):** `gemini-2.5-flash` (고정)
+- **실행 환경:** Apple Silicon M5 (Neural Engine 가속 활용)
+- **핵심 철학:** **무중단 수행** (Resilience) & **자율 진화** (Self-Evolution)
 
 ---
 
-## 🗑️ 삭제 가이드 (안전한 제거)
+## 🔄 지능형 순환 파이프라인 (Intelligent Pipeline)
 
-이 기능을 시스템에서 제거하거나 파일을 삭제할 때 다음 체크리스트를 확인하세요.
+시스템은 매일 **KST 02:00**에 가동되며, 고정된 요일 스케줄보다 **'현재 상태'**를 우선시하는 4단계 흐름을 따릅니다.
 
-- [ ] **GitHub Actions 비활성화**: `.github/workflows/lotto_sync.yml` 파일을 삭제하거나 비활성화하여 자동 실행을 중단하세요.
-- [ ] **의존성 확인**: 다른 파이썬 파일이 `lotto_updater.py`를 import 하고 있는지 확인하세요. (현재는 독립 실행 모듈임)
-- [ ] **구글 시트 권한**: `creds_lotto.json` (Service Account)의 시트 접근 권한을 해제하거나 키를 파기해도 됩니다.
-- [ ] **환경 변수 정리**: 로컬의 `.env` 파일이나 GitHub Secrets에서 `GEMINI_API_KEY`, `GOOGLE_CREDS_JSON`을 삭제하세요.
+### 1단계: 상태 진단 (State Diagnosis)
+기지가 깨어나면 가장 먼저 `sniper_state.json`을 판독합니다.
+- *"지난 작전이 성공했는가?"*
+- *"어제 수행하지 못한(누락된) 단계가 있는가?"*
 
----
+### 2단계: 스마트 캐치업 (Smart Catch-up)
+만약 네트워크 오류나 시스템 과부하로 인해 밀린 작전이 있다면, 오늘의 정규 작전보다 **과거의 미완성 임무를 최우선으로 처리**하여 데이터의 연속성을 보장합니다.
 
-## ⚠️ 기술 규격 및 주의사항
-- **환경**: Python 3.10+
-- **필수 라이브러리**: `google-genai` (New SDK), `gspread`, `oauth2client`, `beautifulsoup4`, `requests`, `python-dotenv`
-- **인증**: GitHub Secrets에 `GOOGLE_CREDS_JSON`과 `GEMINI_API_KEY`가 설정되어 있어야 합니다.
+### 3단계: 유기적 작전 흐름 (Organic Workflow)
+모든 상태가 정상이라면, 일요일을 기점으로 다음 순서대로 작전을 수행합니다.
 
-<br>
+| 작전명 | 실행 요일 (권장) | 임무 내용 |
+| :--- | :--- | :--- |
+| **기초 공사** | **일요일** | **데이터 수집** (Naver/Gemini 파싱) ➡️ **AI 학습** (M5 가속, 가중치 저장) |
+| **실전 사격** | **월요일** | **정예 번호 예측** (Top 20 + LLM 선별) ➡️ **성과 평가** (적중률 계산) |
+| **자가 진화** | **화요일** | **메타 프롬프팅** (성과 분석 후 프롬프트 스스로 수정 및 버전 업) |
 
----
----
-
-# 🚀 Hybrid Sniper V5: Dual-Mode & AI Taxonomy (Final Edition)
-
-이 섹션은 시스템의 **최종 완성형**인 **이원화 실행 모드 및 통합 분석 엔진**에 대한 설명입니다.
-사용자님의 M5 MacBook 하드웨어를 보호하면서도, 상황에 따라 유연하게 실행할 수 있는 두 가지 모드를 제공합니다.
-
-## 🔀 실행 모드 (Execution Modes)
-
-### 1. Manual Mode (매뉴얼 모드 - Full Cycle)
--   **명령어**: `python lotto_predict.py`
--   **설명**: 사령관님의 직접 명령으로 간주하여, **[데이터 수집 -> 통합 분석(ML+DL) -> 최종 저격]** 전 과정을 논스톱으로 수행합니다.
--   **안전장치**: 데이터 수집 3회 실패 시 자동 중단 및 단계별 **하드웨어 쿨링 타임(5~10초)**이 적용됩니다.
-
-### 2. Scheduled Mode (스케줄 모드 - Distributed)
--   **명령어**: `python lotto_predict.py --scheduled`
--   **설명**: 자동화 스케줄러(cron 등)에 의해 실행될 때 사용됩니다. 오늘 요일에 맞는 미션만 수행하고 종료합니다.
-    -   **일**: Sync Data
-    -   **월**: Total Analysis (ML/DL)
-    -   **수**: Final Strike
-
-## 🧠 AI Taxonomy & Architecture (기술 체계)
-
-### 1. 지도 학습 (Supervised Learning)
--   **분류(Classification)**: RandomForest, XGBoost, CatBoost 등의 앙상블 모델이 당첨 확률을 예측합니다.
--   **회귀(Regression)**: 시계열 데이터의 추세를 분석합니다.
--   **인코더-디코더(Encoder-Decoder)**: LSTM, CNN 모델이 데이터의 시간적 특징을 추출하고 재구성합니다.
--   **가시성(Visibility)**: 학습 진행률(N/9 Model)을 실시간 로그로 출력하여 진행 상황을 명확히 알 수 있습니다.
-
-### 2. 비지도 학습 (Unsupervised Learning)
--   **군집화(Clustering)**: KMeans 알고리즘이 최근 당첨 번호들의 패턴을 그룹화합니다.
--   **차원 축소(Dimensionality Reduction)**: PCA 기법을 사용하여 복잡한 고차원 데이터의 핵심 특징을 시각화 가능한 수준으로 압축하여 분석하고, 분산 비율을 로그에 남깁니다.
-
-### 3. 강화 학습 (Reinforcement Learning)
--   **PPO 가중치**: 예측 결과에 대한 보상(Reward)을 기반으로 성과가 좋은 모델에게 더 높은 가중치를 부여하는 최적화 과정을 수행합니다.
-
-### 4. 생성형 AI (Generative AI)
--   **LLM 필터링**: Gemini 1.5 Pro (또는 가용한 최적 모델)가 유전 알고리즘이 만든 후보군을 검토하고, 최종 10개 조합을 생성합니다.
--   **Dynamic Discovery**: API 연결 시 사용 가능한 모델(Flash > Pro)을 자동으로 탐색하여 연결합니다.
+### 4단계: 생존 본능 - 절대 안전 모드 (Survival Mode)
+작전 수행 중 M5 칩의 **CPU 점유율이 60%를 초과**할 경우:
+1. 즉시 모든 작업을 중단합니다.
+2. *"M5 절대 안전 모드 가동: CPU 부하가 60%를 초과하여 작전을 내일로 이월합니다."* 로그를 남깁니다.
+3. 남은 임무는 **다음 날 02:00로 자동 예약**되고, 시스템은 즉시 **잠자기 모드**로 대피합니다.
 
 ---
 
-## 🛡️ 안전 제1수칙 (Safety Protocols)
+## 🧬 Sniper V5만의 핵심 지능 (Key Features)
 
-1.  **자원 제한**: 전체 CPU 코어 중 2개를 시스템용으로 남겨두어 쾌적함을 유지합니다.
-2.  **Safety Pause**: ML과 DL 분석 사이(5초), 전체 사이클 단계 간(10초), 유전 알고리즘 세대 간(1.5초)에 **휴식 시간**을 두어 M5 칩의 과열을 방지합니다.
-3.  **Memory Clean**: 단계별로 메모리를 강제 회수(GC)하여 안정성을 확보합니다.
-4.  **Sync Protection**: 데이터 수집 3회 실패 시 자동으로 중단하여 무한 루프를 방지합니다.
+### 🧠 1. 메타 프롬프팅 (Meta-Prompting Evolution)
+단순히 번호만 예측하는 것이 아닙니다. AI는 자신의 지난주 예측 성적표를 분석합니다.
+- *"왜 틀렸지?"*를 스스로 자문하며, 다음 예측에 사용할 **'전략 프롬프트'를 스스로 수정(Rewrite)**합니다.
+- 예: `v1.0 (기본)` ➡️ `v1.1 (분산 투자 강조)` ➡️ `v1.2 (이월수 패턴 집중)`
+
+### 🛡️ 2. 하드웨어 보호 및 자동 휴식 (Auto-Sleep)
+- **메모리 정화:** 매 단계가 끝날 때마다 `torch.mps.empty_cache()`를 실행하여 M5 Neural Engine을 초기화합니다.
+- **자동 퇴근:** 모든 작전(또는 이월 예약)이 끝나면 **30초 카운트다운** 후 맥북을 강제로 **잠자기 모드(Sleep)**로 전환하여 하드웨어 수명을 보호합니다.
+
+### 📝 3. 구글 시트 '작전로그' (Live Operation Log)
+`로또 max` 스프레드시트의 **'작전로그'** 탭에 모든 상황이 실시간으로 기록됩니다.
+- **성공:** ✅ (Phase 1 완료)
+- **실패:** ❌ (네트워크 에러, 재시도 예약됨)
+- **보류:** 💤 (CPU 과부하로 인한 작전 이월)
+- **진화:** 🧬 (프롬프트 버전 v1.2로 업데이트됨)
+
+---
+
+## 🚀 설치 및 실행 가이드 (How to Run)
+
+### 1. 환경 설정 (Dependencies)
+터미널에서 아래 명령어로 필수 라이브러리를 한 번에 설치합니다.
+```bash
+pip install pytz psutil gspread oauth2client pandas google-genai python-dotenv torch schedule
+```
+
+### 2. 필수 파일 준비
+프로젝트 폴더에 다음 파일들이 있는지 확인하세요.
+- `.env`: `GEMINI_API_KEY` 포함
+- `creds_lotto.json`: 구글 서비스 계정 인증 키
+
+### 3. 시스템 가동 (Deploy)
+백그라운드 스케줄러를 실행합니다. 이제 터미널을 켜두기만 하면 알아서 작동하고 잠듭니다.
+```bash
+python main_scheduler.py
+```
+
+---
+
+## ⚠️ 사령관님을 위한 보안 수칙
+- **API 키 관리:** `.env` 파일은 절대 외부에 노출하지 마십시오.
+- **인증:** 로컬에서는 `creds_lotto.json`을, GitHub Actions에서는 `GOOGLE_CREDS_JSON` 환경 변수를 우선 사용합니다 (하이브리드 인증).
+- **시스템 간섭:** 스케줄러가 작동 중일 때는 맥북의 전원을 끄지 마십시오. (작전 후 알아서 잠듭니다.)
+
+---
+**Mission Status: ACTIVE**
+**Commander Model: gemini-2.5-flash**
