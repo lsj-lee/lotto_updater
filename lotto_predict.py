@@ -6,9 +6,9 @@ import random
 import json
 import datetime
 import re
-import multiprocessing
 import sys
 import traceback
+import itertools
 
 # [필수 라이브러리]
 import numpy as np
@@ -46,11 +46,13 @@ STATE_FILE = 'hybrid_sniper_v5_state.pth'
 USED_CORES = 6
 torch.set_num_threads(USED_CORES)
 
+# Apple Silicon (M5) 가속 설정
 if torch.backends.mps.is_available():
     DEVICE = torch.device("mps")
     print(f"🚀 [System] M5 Neural Engine Activated (MPS/Metal). Cores: {USED_CORES}")
 else:
     DEVICE = torch.device("cpu")
+    print("⚠️ [System] MPS 가속을 사용할 수 없습니다. CPU 모드로 실행합니다.")
 
 REAL_BROWSER_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
@@ -62,6 +64,11 @@ REAL_BROWSER_HEADERS = {
 # ==========================================
 
 class NDA_FeatureEngine:
+    """
+    [데이터 특징 공학 엔진]
+    로또 번호의 통계적 특징(합계, 홀짝 비율, 고저 비율, AC값)을 계산하여
+    모델이 번호의 패턴을 더 잘 이해하도록 돕습니다.
+    """
     @staticmethod
     def calculate_derived_features(numbers_list):
         features = []
@@ -77,38 +84,55 @@ class NDA_FeatureEngine:
                 for j in range(i+1, len(nums)):
                     diffs.add(nums[j] - nums[i])
             ac = len(diffs) - 5
+            # 정규화 (0~1 사이 값으로 변환)
             features.append([s/255.0, odd/6.0, high/6.0, ac/10.0])
         return np.array(features)
 
     @staticmethod
     def create_multimodal_dataset(data, lookback=10):
+        """
+        시계열 데이터(Seq)와 통계 데이터(Stat)를 결합한 멀티모달 데이터셋 생성
+        """
         X_seq, X_stat, y = [], [], []
         if len(data) <= lookback: return None, None, None
+
         raw_nums = np.array(data)
         derived = NDA_FeatureEngine.calculate_derived_features(data)
+
         for i in range(lookback, len(data)):
+            # 과거 10주치 당첨 번호 (시계열)
             X_seq.append(raw_nums[i-lookback:i] / 45.0)
+            # 직전 주차의 통계적 특징 (정적 정보)
             X_stat.append(derived[i-1])
+            # 타겟 (이번 주 당첨 번호 - 원핫 인코딩)
             target = np.zeros(45)
             for n in raw_nums[i]: target[n-1] = 1
             y.append(target)
+
         return (torch.tensor(np.array(X_seq), dtype=torch.float32).to(DEVICE),
                 torch.tensor(np.array(X_stat), dtype=torch.float32).to(DEVICE),
                 torch.tensor(np.array(y), dtype=torch.float32).to(DEVICE))
 
 class CreativeConnectionModel(nn.Module):
+    """
+    [하이브리드 신경망 모델]
+    LSTM(시계열 패턴 분석) + Dense(통계적 특징 분석) 결합 구조
+    """
     def __init__(self):
         super(CreativeConnectionModel, self).__init__()
+        # 시계열(순서) 패턴 학습
         self.lstm = nn.LSTM(input_size=6, hidden_size=128, num_layers=2, batch_first=True, dropout=0.2)
         self.ln_a = nn.LayerNorm(128)
+        # 통계적 특징 학습
         self.stat_net = nn.Sequential(nn.Linear(4, 32), nn.ReLU(), nn.Linear(32, 32), nn.BatchNorm1d(32))
+        # 결합 및 최종 예측
         self.head = nn.Sequential(nn.Linear(128 + 32, 256), nn.ReLU(), nn.Dropout(0.3), nn.Linear(256, 128), nn.ReLU(), nn.Linear(128, 45), nn.Sigmoid())
 
     def forward(self, x_seq, x_stat):
         out_seq, _ = self.lstm(x_seq)
-        out_seq = self.ln_a(out_seq[:, -1, :])
+        out_seq = self.ln_a(out_seq[:, -1, :]) # 마지막 시점의 상태만 사용
         out_stat = self.stat_net(x_stat)
-        combined = torch.cat([out_seq, out_stat], dim=1)
+        combined = torch.cat([out_seq, out_stat], dim=1) # 두 정보 결합
         return self.head(combined)
 
 # ==========================================
@@ -272,73 +296,148 @@ class LottoOrchestrator:
         # 모델 저장 (가중치 파일 생성)
         torch.save(model.state_dict(), STATE_FILE)
         print(f"💾 모델 학습 완료 및 저장됨: {STATE_FILE}")
-        return model # 학습된 모델 반환 (즉시 사용 시)
+        # Phase 2는 학습까지만 수행하고 종료
+        return model
 
     # -------------------------------------------------------------------------
-    # 🔮 [Phase 3] Prediction Only (수요일 02:00)
+    # 🔮 [Phase 3] Prediction Only (수요일 02:00) - 4단계 하이브리드 전략
     # -------------------------------------------------------------------------
     def load_and_predict(self):
         """
-        [분리된 예측 기능]
-        학습 없이 저장된 가중치(pth)를 불러와 예측만 수행합니다.
+        [Phase 3 핵심] '선택과 집중' 하이브리드 예측 전략
+        1. AI 모델로 상위 20개 번호 추출 (Top 20)
+        2. 이 20개로 1만 개 조합 무작위 생성
+        3. 통계적 필터링으로 50개 압축 (합계, 홀짝 비율 등)
+        4. LLM(Gemini)에게 최종 5~10개 선별 요청
         """
-        print("\n🔮 [Phase 3] 저장된 두뇌를 깨워 예측을 시작합니다...")
+        print("\n🔮 [Phase 3] Hybrid Sniper V5 예측 프로세스 시작...")
 
-        # 1. 데이터 로드 (최신 데이터를 입력값으로 사용)
+        # 0. 데이터 준비
         data = self.load_data()
         if not data:
             print("❌ 예측할 데이터가 없습니다.")
             return
 
-        # 2. 가중치 파일 존재 여부 확인
         if not os.path.exists(STATE_FILE):
             print(f"❌ 학습된 모델 파일({STATE_FILE})이 없습니다. Phase 2(학습)를 먼저 실행하세요.")
             return
 
-        # 3. 모델 구조 생성 및 가중치 로드
         try:
+            # 1. 모델 로드 및 상위 20개 번호 추출
+            print("1️⃣ [AI 분석] 상위 20개 유력 번호(Top 20) 추출 중...")
             model = CreativeConnectionModel().to(DEVICE)
-            # map_location을 사용하여 저장된 장치와 무관하게 로드 (안전성 확보)
             model.load_state_dict(torch.load(STATE_FILE, map_location=DEVICE))
-            model.eval() # 평가 모드 전환
-            print("   ✅ 모델 로드 성공.")
+            model.eval()
+
+            last_seq = data[-10:] # 최근 10회차 데이터
+            input_seq = torch.tensor(np.array(last_seq) / 45.0, dtype=torch.float32).unsqueeze(0).to(DEVICE)
+            input_stat = torch.tensor(NDA_FeatureEngine.calculate_derived_features([data[-1]]), dtype=torch.float32).to(DEVICE)
+
+            with torch.no_grad():
+                probs = model(input_seq, input_stat).cpu().numpy()[0]
+
+            # 확률 높은 순으로 20개 번호 선택
+            top_20_indices = probs.argsort()[::-1][:20]
+            top_20_nums = [int(n+1) for n in top_20_indices]
+            print(f"   🎯 Top 20 후보 번호: {sorted(top_20_nums)}")
+
+            # 2. 1만 개 조합 생성 (Top 20 내에서만)
+            print("2️⃣ [조합 생성] Top 20 기반 10,000개 무작위 조합 생성 중...")
+            generated_games = []
+
+            # 20개 중 6개를 뽑는 모든 경우의 수(38,760개) 중 1만 개 랜덤 샘플링
+            # 만약 전체 경우의 수가 적으면 전체 사용
+            all_combinations = list(itertools.combinations(top_20_nums, 6))
+            if len(all_combinations) > 10000:
+                generated_games = random.sample(all_combinations, 10000)
+            else:
+                generated_games = all_combinations
+
+            # 메모리 정리 (M5 최적화)
+            del all_combinations
+            gc.collect()
+            if torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+
+            # 3. 통계적 필터링 (Statistical Filtering)
+            print("3️⃣ [필터링] 통계적 기준(합계, 홀짝)으로 50개 압축 중...")
+            filtered_games = []
+            for game in generated_games:
+                # 조건 1: 합계 100 ~ 170
+                total = sum(game)
+                if not (100 <= total <= 170): continue
+
+                # 조건 2: 홀짝 비율 (2:4, 3:3, 4:2 허용)
+                odd_count = sum(1 for n in game if n % 2 != 0)
+                if not (2 <= odd_count <= 4): continue
+
+                filtered_games.append(sorted(list(game)))
+
+            # 필터링된 것 중 50개만 랜덤 선택 (LLM 토큰 절약)
+            if len(filtered_games) > 50:
+                final_candidates = random.sample(filtered_games, 50)
+            else:
+                final_candidates = filtered_games
+
+            print(f"   ✅ 1차 필터링 통과: {len(filtered_games)}개 -> 최종 후보 50개 선정 완료.")
+
+            # 4. LLM(Gemini) 최종 선별
+            print("4️⃣ [LLM 전략] Gemini에게 최종 5~10개 추천 요청 중...")
+            final_selection = self._ask_gemini_to_select(final_candidates)
+
+            # 결과 저장
+            if final_selection:
+                self._write_sheet(final_selection)
+            else:
+                print("   ⚠️ LLM 응답 실패로 랜덤 10개를 저장합니다.")
+                fallback_selection = final_candidates[:10]
+                self._write_sheet(fallback_selection)
+
         except Exception as e:
-            print(f"❌ 모델 로드 중 오류 발생: {e}")
-            return
+            print(f"❌ 예측 프로세스 중 치명적 오류: {e}")
+            traceback.print_exc()
 
-        # 4. 예측 수행 및 보고서 생성
-        self.generate_report(model, data)
+    def _ask_gemini_to_select(self, candidates):
+        """Gemini에게 후보군 중 베스트 조합을 고르라고 요청"""
+        if not self.client: return None
 
-    def generate_report(self, model, data):
-        print("📝 전략 보고서 작성 중...")
-        # 최근 10회차 데이터를 입력 시퀀스로 사용
-        last_seq = data[-10:]
-        if len(last_seq) < 10:
-            print("⚠️ 예측을 위한 최근 데이터가 부족합니다.")
-            return
+        candidates_str = "\n".join([f"{i+1}. {c}" for i, c in enumerate(candidates)])
+        prompt = f"""
+        당신은 로또 분석 AI 전문가입니다. 아래는 확률 통계적으로 필터링된 50개의 유력한 로또 조합입니다.
+        이 중에서 당첨 확률이 가장 높아 보이는 '최고의 조합 5~10개'를 선별하여 JSON 형식으로 반환해주세요.
 
-        input_seq = torch.tensor(np.array(last_seq) / 45.0, dtype=torch.float32).unsqueeze(0).to(DEVICE)
-        # 마지막 회차의 통계적 특징 추출
-        input_stat = torch.tensor(NDA_FeatureEngine.calculate_derived_features([data[-1]]), dtype=torch.float32).to(DEVICE)
+        선별 기준:
+        - 번호들이 너무 몰려있지 않고 골고루 분포된 것
+        - 과거 패턴(당신이 아는 지식 내에서)과 유사하지 않은 것
 
-        with torch.no_grad():
-            probs = model(input_seq, input_stat).cpu().numpy()[0]
+        [후보 조합 목록]
+        {candidates_str}
 
-        # 확률 상위 15개 번호 추출 (후보군)
-        top_nums = [int(n+1) for n in probs.argsort()[::-1][:15]]
+        [출력 형식]
+        오직 JSON 배열만 출력하세요. 예: [[1, 2, 3, 4, 5, 6], [7, 8, 9, 10, 11, 12]]
+        다른 설명이나 마크다운 기호(```)는 넣지 마세요.
+        """
 
-        # 10개 게임 생성 (랜덤 조합)
-        games = [sorted(random.sample(top_nums, 6)) for _ in range(10)]
-        self._write_sheet(games)
+        try:
+            resp = self.client.models.generate_content(model=self.model_name, contents=prompt)
+            text = resp.text.strip().replace('```json', '').replace('```', '')
+            selected = json.loads(text)
+            if isinstance(selected, list) and len(selected) > 0:
+                print(f"   ✨ Gemini가 {len(selected)}개의 조합을 엄선했습니다.")
+                return selected
+            return None
+        except Exception as e:
+            print(f"   ⚠️ Gemini 요청 실패: {e}")
+            return None
 
     def _write_sheet(self, games):
         sh = self.get_sheet()
         try: ws = sh.worksheet(REC_SHEET_NAME)
         except: ws = sh.add_worksheet(title=REC_SHEET_NAME, rows=100, cols=20)
         ws.clear()
-        ws.update(range_name='A1', values=[['🏆 Sniper V5 최종 추천 번호']])
+        ws.update(range_name='A1', values=[['🏆 Sniper V5 최종 추천 번호 (Top 20 Hybrid)']])
         ws.update(range_name='A3', values=[[f"시나리오 {i+1}"] + g for i, g in enumerate(games)])
-        print("   ✅ 구글 시트 '추천번호' 탭에 작전 결과가 하달되었습니다.")
+        print("   ✅ 구글 시트 '추천번호' 탭에 작전 결과가 기록되었습니다.")
 
     # -------------------------------------------------------------------------
     # 🏅 [Phase 4] Reward System (목요일 02:00)
@@ -424,5 +523,5 @@ if __name__ == "__main__":
     app.sync_data()       # Phase 1
     app.train_brain()     # Phase 2
     app.load_and_predict()# Phase 3
-    # app.evaluate_performance() # Phase 4 (Optional)
+    # app.evaluate_performance() # Phase 4
     print("\n✅ 작전 완료 (Mission Accomplished).")

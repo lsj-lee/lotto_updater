@@ -84,7 +84,7 @@ class LottoScheduler:
         self.run_safe("Model Training (Phase 2)", self.orchestrator.train_brain)
 
     def job_predict(self):
-        """Phase 3: 번호 예측 (학습 없이 가중치 로드 -> 예측 -> 시트 저장)"""
+        """Phase 3: 번호 예측 (학습 없이 가중치 로드 -> Top 20 -> 1만개 -> 50개 -> LLM)"""
         if hasattr(self.orchestrator, 'load_and_predict'):
             self.run_safe("Prediction Only (Phase 3)", self.orchestrator.load_and_predict)
         else:
@@ -119,10 +119,11 @@ def run_kst_schedule():
     print("🚀 [Scheduler] Hybrid Sniper V5 KST(한국 시간) 스케줄러 시작...")
     print("   - 일요일 02:00 : Phase 1 (데이터 동기화)")
     print("   - 월요일 02:00 : Phase 2 (모델 학습)")
-    print("   - 수요일 02:00 : Phase 3 (번호 예측)")
+    print("   - 수요일 02:00 : Phase 3 (Top 20 기반 번호 예측)")
     print("   - 목요일 02:00 : Phase 4 (성과 평가)")
     print("   - 금요일 02:00 : Phase 4+ (자율 진화)")
 
+    # 타임존 설정: 대한민국 (KST)
     kst = pytz.timezone('Asia/Seoul')
 
     while True:
@@ -132,7 +133,7 @@ def run_kst_schedule():
         current_hour = now.hour
         current_minute = now.minute
 
-        # 디버깅용 로그 (1시간마다 한 번씩만 출력하거나 필요 시 주석 해제)
+        # 디버깅용 로그 (매시 정각에만 출력)
         # if current_minute == 0 and current_minute != last_run_minute:
         #     print(f"🕒 [Tick] 현재 한국 시간: {now.strftime('%Y-%m-%d %H:%M:%S')} ({current_day_str})")
 
