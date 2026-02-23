@@ -411,6 +411,8 @@ class LottoOrchestrator:
         except Exception as e:
             print(f"❌ 예측 프로세스 중 오류: {e}")
             traceback.print_exc()
+            # 에러 발생 시에도 호출하는 쪽에서 알 수 있도록 예외를 다시 던질 수 있음
+            # 하지만 여기서는 로그만 남기고 안전 종료를 원칙으로 함.
         finally:
             self._optimize_memory()
 
