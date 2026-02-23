@@ -39,6 +39,7 @@ SPREADSHEET_ID = '1lOifE_xRUocAY_Av-P67uBMKOV1BAb4mMwg_wde_tyA'
 CREDS_FILE = 'creds_lotto.json'
 SHEET_NAME = '로또 max'
 REC_SHEET_NAME = '추천번호'
+LOG_SHEET_NAME = 'Log'  # [Phase 4] 로그 시트 추가
 STATE_FILE = 'hybrid_sniper_v5_state.pth'
 
 # M5 하드웨어 안전장치 (6코어 제한)
@@ -228,7 +229,15 @@ class LottoOrchestrator:
                 nums = [int(str(x).replace(',', '')) for x in r[2:8]]
                 data.append(nums)
             except: pass
+
+        # 데이터 순서를 과거->현재로 정렬 (내림차순 시트일 경우)
+        # 로또 데이터가 최신이 상단(인덱스 작음)에 있다면 뒤집어야 함.
+        # 시트의 1행이 헤더, 2행이 최신이라고 가정하면 rows[0]이 최신.
+        # 학습을 위해 시간 순서대로 정렬 (과거 -> 최신)
+        data.reverse()
+
         if len(data) < 50: return None, None
+
         X_seq, X_stat, y = NDA_FeatureEngine.create_multimodal_dataset(data, 10)
         model = CreativeConnectionModel().to(DEVICE)
         opt = optim.Adam(model.parameters(), lr=0.001)
@@ -262,10 +271,102 @@ class LottoOrchestrator:
         ws.update(range_name='A3', values=[[f"시나리오 {i+1}"] + g for i, g in enumerate(games)])
         print("   ✅ 구글 시트 '추천번호' 탭에 작전 결과가 하달되었습니다.")
 
+    # -------------------------------------------------------------------------
+    # 🏅 [Phase 4] PPO 기반 보상 체계 (Reward System)
+    # -------------------------------------------------------------------------
+    def evaluate_performance(self):
+        print("\n🏅 [Phase 4] 지난 작전 성과 평가 (Reward Check)...")
+        try:
+            sh = self.get_sheet()
+
+            # 1. 실제 당첨 번호 (최신 회차) 가져오기
+            ws_main = sh.get_worksheet(0)
+            latest_row = ws_main.row_values(2) # 헤더 다음 행
+            real_round = int(latest_row[0].replace('회', ''))
+            real_nums = set([int(x) for x in latest_row[2:8]])
+            bonus_num = int(latest_row[8])
+            print(f"   🎯 실제 결과 ({real_round}회): {sorted(list(real_nums))} + {bonus_num}")
+
+            # 2. 추천 번호 가져오기
+            try:
+                ws_rec = sh.worksheet(REC_SHEET_NAME)
+            except:
+                print("   ⚠️ 추천 번호 시트가 없습니다. 평가 건너뜀.")
+                return
+
+            rec_rows = ws_rec.get_all_values()
+            # 시나리오 행 찾기 (A3부터 시작한다고 가정)
+            predictions = []
+            for r in rec_rows:
+                if r and "시나리오" in r[0]:
+                    try:
+                        nums = set([int(x) for x in r[1:7] if x])
+                        predictions.append(nums)
+                    except: pass
+
+            if not predictions:
+                print("   ⚠️ 평가할 추천 번호가 없습니다.")
+                return
+
+            # 3. 매칭 및 보상 계산
+            total_hits = 0
+            max_hit = 0
+            results = []
+
+            for idx, pred in enumerate(predictions):
+                hit_cnt = len(real_nums.intersection(pred))
+                is_bonus = bonus_num in pred
+                rank = "낙첨"
+
+                if hit_cnt == 6: rank = "1등"
+                elif hit_cnt == 5 and is_bonus: rank = "2등"
+                elif hit_cnt == 5: rank = "3등"
+                elif hit_cnt == 4: rank = "4등"
+                elif hit_cnt == 3: rank = "5등"
+
+                total_hits += hit_cnt
+                if hit_cnt > max_hit: max_hit = hit_cnt
+
+                results.append(f"시나리오 {idx+1}: {hit_cnt}개 일치 ({rank})")
+
+            # 4. 로그 기록
+            avg_hit = total_hits / len(predictions)
+            self._log_reward(real_round, max_hit, avg_hit, results)
+
+            print(f"   📊 평가 완료: 최고 {max_hit}개 일치, 평균 {avg_hit:.1f}개")
+
+        except Exception as e:
+            print(f"❌ 성과 평가 중 오류: {e}")
+            traceback.print_exc()
+
+    def _log_reward(self, round_no, max_hit, avg_hit, details):
+        """평가 결과를 Log 시트에 기록"""
+        try:
+            sh = self.get_sheet()
+            try:
+                ws_log = sh.worksheet(LOG_SHEET_NAME)
+            except:
+                ws_log = sh.add_worksheet(title=LOG_SHEET_NAME, rows=1000, cols=10)
+                ws_log.append_row(["Timestamp", "Round", "Max Hit", "Avg Hit", "Details"])
+
+            # 로그 쌓기 (최신이 아래로)
+            ws_log.append_row([
+                datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                round_no,
+                max_hit,
+                f"{avg_hit:.2f}",
+                str(details)
+            ])
+            print("   💾 로그 저장 완료.")
+        except Exception as e:
+            print(f"⚠️ 로그 저장 실패: {e}")
+
 if __name__ == "__main__":
     app = LottoOrchestrator()
     print("🚀 Manual Mode: Executing Full Strategy...")
     app.sync_data()
     model, data = app.train_brain()
     if model and data: app.generate_report(model, data)
+    # 수동 모드에서도 평가 실행 가능 (옵션)
+    # app.evaluate_performance()
     print("\n✅ 작전 완료 (Mission Accomplished).")
