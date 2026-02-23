@@ -334,7 +334,11 @@ class HybridSniperOrchestrator:
         model_display = self.model_name if self.model_name else "Manual Mode"
         print(f"🤖 [Generative AI] {model_display}: Strategic Filtering...")
         full_data = self.data_manager.fetch_data()
-        last_seq = [d['nums'] for d in full_data[-5:]]
+
+        # [Fix] Type Correction for Phase 3
+        # full_data is a list of lists of ints [[1,2,3,4,5,6], ...]
+        # Previous code assumed dicts: [d['nums'] for d in full_data[-5:]] -> Error
+        last_seq = full_data[-5:] # Since fetch_data now returns simple list of lists
 
         gemini_filter = GeminiStrategyFilter(self.client, self.model_name)
         final_games = gemini_filter.filter_candidates(elite_candidates, last_seq)
@@ -383,7 +387,7 @@ class HybridSniperOrchestrator:
                 break
 
             print(f"🔍 Fetching Round {r}...")
-            data = self.fetch_lotto_data_via_gemini(r)
+            data = self.fetch_lotto_data_official(r)
             if data:
                 self.data_manager.update_sheet_row(data)
                 print(f"💾 Updated Round {r}")
@@ -393,35 +397,36 @@ class HybridSniperOrchestrator:
                 print(f"⚠️ Failed to fetch round {r}. (Attempts: {failures}/3)")
 
             # [Rate Limit Defense]
-            time.sleep(3)
+            time.sleep(0.5)
 
-    def fetch_lotto_data_via_gemini(self, round_no):
+    def fetch_lotto_data_official(self, round_no):
         """
-        [Library Migration] Uses google-genai to parse lottery data.
+        [Phase 1 Fix] Uses Donghang Lottery Official API instead of Gemini scraping.
         """
-        if not self.client or not self.model_name:
-            print("❌ Gemini Client not initialized. Cannot parse.")
-            return None
-
-        url = f"https://search.naver.com/search.naver?query=로또+{round_no}회+당첨번호"
+        url = f"https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo={round_no}"
         try:
-            response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
-            soup = BeautifulSoup(response.text, 'html.parser')
-            text = soup.get_text()[:5000]
-
-            prompt = f"Extract Lotto data for round {round_no} from text into JSON. Fields: drwNo(int), drwtNo1..6(int), bnusNo(int), firstAccumamnt(int), firstPrzwnerCo(int), drwNoDate(str YYYY-MM-DD). Text: {text}"
-
-            # [SDK v1.0+] Correct usage
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt
-            )
-
-            json_str = response.text.strip().replace('```json', '').replace('```', '')
-            data = json.loads(json_str)
-            return data if int(data['drwNo']) == round_no else None
+            response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('returnValue') == 'success':
+                    # Normalize keys to match system expectations
+                    return {
+                        'drwNo': data['drwNo'],
+                        'drwNoDate': data['drwNoDate'],
+                        'drwtNo1': data['drwtNo1'],
+                        'drwtNo2': data['drwtNo2'],
+                        'drwtNo3': data['drwtNo3'],
+                        'drwtNo4': data['drwtNo4'],
+                        'drwtNo5': data['drwtNo5'],
+                        'drwtNo6': data['drwtNo6'],
+                        'bnusNo': data['bnusNo'],
+                        'firstPrzwnerCo': data['firstPrzwnerCo'],
+                        'firstAccumamnt': data['firstAccumamnt'],
+                        'firstPrzwnerStore': '' # API doesn't provide this, empty string fallback
+                    }
+            return None
         except Exception as e:
-            print(f"❌ Fetch Error ({self.model_name}): {e}")
+            print(f"❌ Official API Error: {e}")
             return None
 
     def update_report(self, games):
@@ -482,6 +487,7 @@ class LottoDataManager:
         self.gc = gc
         self.sheet_name = sheet_name
         self.numbers = []
+        # raw_data not strictly used in current logic but kept for extensibility if needed
         self.raw_data = []
 
     def fetch_data(self):
@@ -494,6 +500,7 @@ class LottoDataManager:
             try:
                 nums = [int(r[i].replace(',', '')) for i in range(1, 7)]
                 self.numbers.append(nums)
+                # Ensure raw_data matches list of dicts structure if needed, but fetch_data returns self.numbers
                 self.raw_data.append({'round': int(r[0].replace(',', '')), 'nums': nums})
             except: continue
         return self.numbers
@@ -525,11 +532,9 @@ class LottoDataManager:
     def prepare_training_data(self, data_source, lookback=5):
         X, y = [], []
         if len(data_source) <= lookback: return np.array([]), np.array([])
-        # Handle list of dicts OR list of lists
-        if isinstance(data_source[0], dict):
-            numbers = [d['nums'] for d in data_source]
-        else:
-            numbers = data_source
+
+        # [Fix] Standardization: data_source is always list of lists now from fetch_data()
+        numbers = data_source
 
         for i in range(lookback, len(numbers)):
             seq = numbers[i-lookback:i]
