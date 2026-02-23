@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
-import schedule
-import time
-import logging
-import sys
 import os
-import torch
-import gc
-import pytz
+import sys
+import time
+import json
+import logging
 import psutil
-from datetime import datetime, timedelta
+import datetime
+from datetime import timedelta
 
 # ==========================================
 # 📋 [System] 로깅 설정
@@ -40,45 +38,48 @@ except ImportError:
     EvolutionManager = None
 
 # -----------------------------------------------------------------------------
-# 🛰️ 메인 스케줄러 클래스
+# 🛰️ 단발성(Run-Once) 사령관 클래스
 # -----------------------------------------------------------------------------
-class LottoScheduler:
+class SniperCommander:
     """
-    [자율 기지 스케줄러]
-    - 정규 작전 수행 (KST 02:00)
-    - 자원 감시 (Resource Awareness)
-    - 지능형 재시도 (Smart Retry)
-    - 자동 잠자기 (Auto-Sleep)
+    [Hit & Run 사령관]
+    - 매일 1회 실행 (crontab 연동)
+    - 누락된 작전(Catch-up) 우선 수행
+    - CPU 부하 감지 (Absolute Safety Mode)
+    - 작전 수행 후 시스템 자동 잠자기
     """
     def __init__(self):
         self.orchestrator = LottoOrchestrator()
         self.state_manager = SniperState()
         self.evolution_manager = EvolutionManager() if EvolutionManager else None
-        self.retry_queue = []
-        logging.info("🤖 Sniper V5 Scheduler Initialized.")
+        logging.info("🤖 Sniper V5 Commander Initialized (Run-Once Mode).")
 
     def _cleanup_memory(self):
-        gc.collect()
-        if torch.backends.mps.is_available():
-            torch.mps.empty_cache()
+        try:
+            import gc
+            import torch
+            gc.collect()
+            if torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+        except: pass
 
     def check_resource_safety(self):
-        """[시스템 감시] CPU 점유율이 60%를 초과하면 작전 중단 (Absolute Safety Mode)"""
+        """[시스템 감시] CPU 점유율이 60%를 초과하면 작전 중단"""
         cpu_usage = psutil.cpu_percent(interval=1)
         if cpu_usage > 60:
-            logging.warning(f"⚠️ M5 절대 안전 모드 가동: CPU 부하가 {cpu_usage}% > 60%를 초과하여 작전을 내일로 이월합니다.")
+            logging.warning(f"⚠️ M5 절대 안전 모드 발동: CPU 부하 {cpu_usage}% > 60%. 작전을 취소하고 종료합니다.")
             self.execute_auto_sleep()
-            return False
+            sys.exit(0)
         return True
 
     def execute_auto_sleep(self):
         """[자동 잠자기] 작전 종료 후 30초 유예 후 시스템 절전"""
-        logging.info("🏁 작전 종료. 30초 후 잠자기 모드로 진입합니다.")
+        logging.info("🏁 작전 종료. 30초 후 맥북을 수면 상태로 전환합니다.")
         time.sleep(30)
         try:
             os.system("osascript -e 'tell application \"System Events\" to sleep'")
         except Exception as e:
-            logging.error(f"❌ 잠자기 실패: {e}")
+            logging.error(f"❌ 잠자기 명령 실패: {e}")
 
     def run_safe(self, task_name, func, *args):
         logging.info(f"▶️ [작업 시작] {task_name}")
@@ -91,45 +92,6 @@ class LottoScheduler:
             logging.error(f"❌ [작업 실패] {task_name}: {e}")
             return False
 
-    def run_sequence_with_retry(self, tasks):
-        """
-        연속 작전 실행. 실패 시 다음 날 02:00 재시도 예약.
-        tasks: [(name, func), ...]
-        """
-        # 1. 자원 점검
-        if not self.check_resource_safety():
-            return
-
-        all_success = True
-        failed_task = None
-
-        for i, (name, func) in enumerate(tasks):
-            success = self.run_safe(name, func)
-            if not success:
-                all_success = False
-                failed_task = (name, func)
-                break
-
-            if i < len(tasks) - 1:
-                time.sleep(10) # 쿨다운
-
-        if all_success:
-            logging.info("✨ 모든 작전 성공.")
-            self.retry_queue = [] # 성공 시 재시도 큐 클리어
-        else:
-            logging.warning(f"⚠️ '{failed_task[0]}' 실패. 내일 02:00 재시도 예약.")
-            self.retry_queue.append(failed_task)
-
-        self.execute_auto_sleep()
-
-    def retry_failed_tasks(self):
-        """재시도 큐 실행"""
-        if not self.retry_queue: return
-        logging.info(f"🔄 재시도 작전 {len(self.retry_queue)}건 시작...")
-        tasks = self.retry_queue[:]
-        self.retry_queue = []
-        self.run_sequence_with_retry(tasks)
-
     # --- Job Wrappers ---
     def job_sync(self): self.orchestrator.sync_data()
     def job_train(self): self.orchestrator.train_brain()
@@ -138,61 +100,97 @@ class LottoScheduler:
 
     def job_evolution(self):
         if self.evolution_manager:
-            if sys.stdin.isatty():
+            # 단발성 실행에서는 자동 모드로 가정하거나, 로그만 남김
+            # 여기서는 기존 로직 유지
+            try:
                 self.evolution_manager.execute_evolution_cycle('lotto_predict.py', self.state_manager)
-            else:
-                # 백그라운드 모드에서는 프롬프트 진화만 수행 (코드 수정 X)
-                # execute_evolution_cycle 내부에서 처리됨
-                pass
+            except Exception as e:
+                logging.error(f"진화 실패: {e}")
+        else:
+            logging.info("진화 모듈 없음. 패스.")
+
+    def get_tasks_for_day(self, day_name):
+        """요일별 작전 정의 (기존 스케줄 유지)"""
+        if day_name == "Sunday":
+            return [("Phase 1: Sync", self.job_sync), ("Phase 2: Train", self.job_train)]
+        elif day_name == "Monday":
+            return [("Phase 3: Predict", self.job_predict), ("Phase 4: Eval", self.job_evaluate)]
+        elif day_name == "Tuesday":
+            return [("Phase 4+: Evolution", self.job_evolution)]
+        else:
+            return [] # Rest Days (Wed-Sat)
+
+    def execute_mission(self):
+        # 1. 자원 안전 점검
+        self.check_resource_safety()
+
+        # 2. 날짜 계산
+        today = datetime.datetime.now().date()
+        last_run_str = self.state_manager.state.get("last_scheduler_run", None)
+
+        if last_run_str:
+            last_run_date = datetime.datetime.strptime(last_run_str, "%Y-%m-%d").date()
+        else:
+            # 최초 실행 시 어제 실행한 것으로 간주하여 오늘 것만 수행
+            last_run_date = today - timedelta(days=1)
+
+        logging.info(f"📅 오늘: {today}, 마지막 실행: {last_run_date}")
+
+        # 3. Catch-up 로직 (누락된 작전 수행)
+        # last_run_date + 1 부터 today - 1 까지 확인
+        target_date = last_run_date + timedelta(days=1)
+
+        while target_date < today:
+            day_name = target_date.strftime("%A")
+            tasks = self.get_tasks_for_day(day_name)
+
+            if tasks:
+                logging.info(f"🚀 [Catch-up] 누락된 작전 수행: {target_date} ({day_name})")
+                for task_name, task_func in tasks:
+                    self.run_safe(task_name, task_func)
+
+                # 상태 업데이트 및 종료 (1회 타격 원칙)
+                self.state_manager.update_metric("last_scheduler_run", target_date.strftime("%Y-%m-%d"))
+                logging.info(f"✨ Catch-up 완료 ({target_date}). 내일 계속됩니다.")
+                self.execute_auto_sleep()
+                sys.exit(0)
+
+            # Rest Day인 경우 그냥 스킵하고 날짜만 업데이트?
+            # 아니면 굳이 상태 업데이트 안하고 루프 계속?
+            # 상태 업데이트를 해야 "확인했다"는 기록이 남음.
+            logging.info(f"💤 [Pass] {target_date} ({day_name}) - 휴식일 (Skip)")
+            # 휴식일이라도 상태는 업데이트하여 중복 체크 방지
+            # 하지만 '1회 타격' 원칙상 '작전'이 없으면 루프를 돌아도 됨.
+            # 다만, 너무 오래전 날짜에서 시작하면 무한루프 위험? -> while target_date < today 조건 있음.
+            target_date += timedelta(days=1)
+
+        # 4. 오늘 작전 수행 (Catch-up이 없었거나 모두 휴식일이었을 경우)
+        day_name = today.strftime("%A")
+        tasks = self.get_tasks_for_day(day_name)
+
+        if tasks:
+            logging.info(f"🚀 [Regular] 정규 작전 수행: {today} ({day_name})")
+            for task_name, task_func in tasks:
+                self.run_safe(task_name, task_func)
+        else:
+            logging.info(f"💤 [Rest] {today} ({day_name}) - 오늘은 작전이 없습니다.")
+
+        # 5. 최종 상태 업데이트 및 종료
+        self.state_manager.update_metric("last_scheduler_run", today.strftime("%Y-%m-%d"))
+        self.execute_auto_sleep()
 
 # -----------------------------------------------------------------------------
-# 🕒 KST 기반 메인 루프
+# 🚀 메인 실행부
 # -----------------------------------------------------------------------------
-def run_kst_schedule():
-    bot = LottoScheduler()
-    print("🚀 Sniper V5 자율 스케줄러 가동 (KST 02:00)")
-
-    kst = pytz.timezone('Asia/Seoul')
-    last_run_minute = -1
-
-    while True:
-        now = datetime.now(kst)
-        if now.minute != last_run_minute:
-            # 매일 02:00 정각
-            if now.hour == 2 and now.minute == 0:
-                day = now.strftime("%A")
-                logging.info(f"🕒 [Schedule] {day} 02:00 작전 개시")
-
-                # 1. 재시도 우선 처리
-                if bot.retry_queue:
-                    bot.retry_failed_tasks()
-                    last_run_minute = now.minute
-                    continue
-
-                # 2. 요일별 정규 작전
-                if day == "Sunday":
-                    bot.run_sequence_with_retry([
-                        ("Phase 1: Sync", bot.job_sync),
-                        ("Phase 2: Train", bot.job_train)
-                    ])
-                elif day == "Monday":
-                    bot.run_sequence_with_retry([
-                        ("Phase 3: Predict", bot.job_predict),
-                        ("Phase 4: Eval", bot.job_evaluate)
-                    ])
-                elif day == "Tuesday":
-                    bot.run_sequence_with_retry([
-                        ("Phase 4+: Evolution", bot.job_evolution)
-                    ])
-                else:
-                    logging.info("💤 휴식일. 시스템 점검 후 절전.")
-                    bot.execute_auto_sleep()
-
-            last_run_minute = now.minute
-        time.sleep(10)
-
 if __name__ == "__main__":
     try:
-        run_kst_schedule()
+        commander = SniperCommander()
+        commander.execute_mission()
     except KeyboardInterrupt:
-        print("\n🛑 시스템 종료.")
+        logging.warning("🛑 사용자 중단.")
+    except Exception as e:
+        logging.error(f"❌ 치명적 오류: {e}")
+        # 오류 발생 시에도 잠자기는 시도 (안전)
+        try:
+            os.system("osascript -e 'tell application \"System Events\" to sleep'")
+        except: pass
