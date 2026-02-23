@@ -56,57 +56,65 @@ else:
 # -----------------------------------------------------------------------------
 class LottoScheduler:
     """
-    [Phase 1~4] 전체 파이프라인을 시간표에 맞춰 지휘하는 오케스트레이터입니다.
+    [압축된 스케줄러]
+    일요일: 데이터 수집 -> 모델 학습 (연속 실행)
+    월요일: 번호 예측 -> 성과 평가 (연속 실행)
+    화요일: 자율 진화 (단독 실행)
     """
     def __init__(self):
         self.orchestrator = LottoOrchestrator()
         self.evolution_manager = EvolutionManager() if EvolutionManager else None
         logging.info("🤖 Hybrid Sniper V5 OrchestratorInitialized.")
 
+    def _cleanup_memory(self):
+        """M5 메모리 누수 방지를 위한 강제 청소"""
+        gc.collect()
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        logging.info("🧹 [System] 메모리 정리 완료 (Garbage Collection)")
+
     def run_safe(self, task_name, func, *args):
-        """
-        작업 실행 중 오류가 발생해도 스케줄러가 죽지 않도록 보호하는 래퍼 함수입니다.
-        작업 전후로 메모리 청소(GC)를 수행하여 M5 시스템을 보호합니다.
-        """
+        """작업 안전 실행 래퍼"""
         logging.info(f"▶️ [작업 시작] {task_name}")
         try:
-            # 메모리 정리 (리소스 보호)
-            gc.collect()
-            if torch.backends.mps.is_available():
-                torch.mps.empty_cache()
-
+            self._cleanup_memory()
             func(*args)
             logging.info(f"✅ [작업 완료] {task_name}")
         except Exception as e:
             logging.error(f"❌ [작업 실패] {task_name}: {str(e)}")
 
+    def run_sequence(self, tasks):
+        """
+        여러 작업을 연속해서 실행하며, 사이사이에 안전 휴식(Sleep)과 메모리 정리를 수행합니다.
+        tasks: [(task_name, func), (task_name, func), ...]
+        """
+        for i, (name, func) in enumerate(tasks):
+            self.run_safe(name, func)
+
+            # 마지막 작업이 아니면 휴식 및 정리
+            if i < len(tasks) - 1:
+                logging.info("💤 [System] 과열 방지를 위해 10초간 대기합니다...")
+                time.sleep(10)
+                self._cleanup_memory()
+
     # --- 개별 작업 정의 ---
 
     def job_sync(self):
-        """Phase 1: 데이터 동기화 (일요일 02:00)"""
-        logging.info("📅 Phase 1: 데이터 동기화 시작 (Naver -> Gemini -> Sheet)")
-        self.run_safe("Data Synchronization", self.orchestrator.sync_data)
+        self.orchestrator.sync_data()
 
     def job_train(self):
-        """Phase 2: 모델 학습 (월요일 02:00) - 예측 없음"""
-        logging.info("📅 Phase 2: AI 모델 학습 시작 (Only Training)")
-        self.run_safe("Model Training", self.orchestrator.train_brain)
+        self.orchestrator.train_brain()
 
     def job_predict(self):
-        """Phase 3: 하이브리드 예측 (수요일 02:00) - Top 20 -> LLM"""
-        logging.info("📅 Phase 3: 번호 예측 및 시트 기록 시작")
         if hasattr(self.orchestrator, 'load_and_predict'):
-            self.run_safe("Prediction Only", self.orchestrator.load_and_predict)
+            self.orchestrator.load_and_predict()
         else:
             logging.error("❌ 'load_and_predict' 함수가 없습니다.")
 
     def job_evaluate(self):
-        """Phase 4: 성과 평가 (목요일 02:00) - Reward Log"""
-        logging.info("📅 Phase 4: 지난 작전 성과 평가 시작")
-        self.run_safe("Performance Evaluation", self.orchestrator.evaluate_performance)
+        self.orchestrator.evaluate_performance()
 
     def job_evolution(self):
-        """Phase 4+: 자율 진화 제안 (금요일 02:00)"""
         if self.evolution_manager:
             logging.info("🧬 [Self-Evolution] 코드 분석 및 진화 제안 시작...")
             if sys.stdin.isatty():
@@ -117,17 +125,16 @@ class LottoScheduler:
             logging.warning("⚠️ Evolution Manager가 로드되지 않았습니다.")
 
 # -----------------------------------------------------------------------------
-# 🕒 KST (한국 시간) 기반 스케줄링 로직
+# 🕒 KST (한국 시간) 기반 압축 스케줄링 로직
 # -----------------------------------------------------------------------------
 def run_kst_schedule():
     bot = LottoScheduler()
 
-    print("🚀 [Scheduler] Hybrid Sniper V5 KST(한국 시간) 스케줄러 시작...")
-    print("   - 일요일 02:00 : Phase 1 (데이터 동기화)")
-    print("   - 월요일 02:00 : Phase 2 (모델 학습)")
-    print("   - 수요일 02:00 : Phase 3 (하이브리드 예측)")
-    print("   - 목요일 02:00 : Phase 4 (성과 평가)")
-    print("   - 금요일 02:00 : Phase 4+ (자율 진화)")
+    print("🚀 [Scheduler] Hybrid Sniper V5 압축 스케줄러 (High-Speed Mode) 시작...")
+    print("   - 일요일 02:00 (KST): [기초 공사] 데이터 수집 -> (10초 휴식) -> 모델 학습")
+    print("   - 월요일 02:00 (KST): [실전 사격] 정예 번호 예측 -> (10초 휴식) -> 성과 평가")
+    print("   - 화요일 02:00 (KST): [자가 진화] 코드 분석 및 개선 제안")
+    print("   (이후 수~토요일은 휴식하며 다음 작전을 준비합니다)")
 
     # 타임존 설정: 대한민국 (KST)
     kst = pytz.timezone('Asia/Seoul')
@@ -143,25 +150,26 @@ def run_kst_schedule():
         # 1분 단위로 작업 체크 (중복 실행 방지)
         if current_minute != last_run_minute:
 
-            # 1. 일요일 02:00 -> Phase 1 (Sync)
+            # 1. 일요일 02:00 -> 기초 공사 (Sync + Train)
             if current_day_str == "Sunday" and current_hour == 2 and current_minute == 0:
-                bot.job_sync()
+                logging.info(f"🕒 [Schedule] {current_day_str} 02:00 - 기초 공사 시작")
+                bot.run_sequence([
+                    ("Phase 1: 데이터 동기화", bot.job_sync),
+                    ("Phase 2: 모델 학습", bot.job_train)
+                ])
 
-            # 2. 월요일 02:00 -> Phase 2 (Train)
+            # 2. 월요일 02:00 -> 실전 사격 (Predict + Evaluate)
             elif current_day_str == "Monday" and current_hour == 2 and current_minute == 0:
-                bot.job_train()
+                logging.info(f"🕒 [Schedule] {current_day_str} 02:00 - 실전 사격 시작")
+                bot.run_sequence([
+                    ("Phase 3: 정예 번호 예측", bot.job_predict),
+                    ("Phase 4: 성과 평가", bot.job_evaluate)
+                ])
 
-            # 3. 수요일 02:00 -> Phase 3 (Predict)
-            elif current_day_str == "Wednesday" and current_hour == 2 and current_minute == 0:
-                bot.job_predict()
-
-            # 4. 목요일 02:00 -> Phase 4 (Evaluate)
-            elif current_day_str == "Thursday" and current_hour == 2 and current_minute == 0:
-                bot.job_evaluate()
-
-            # 5. 금요일 02:00 -> Phase 4+ (Evolution)
-            elif current_day_str == "Friday" and current_hour == 2 and current_minute == 0:
-                bot.job_evolution()
+            # 3. 화요일 02:00 -> 자가 진화 (Evolution)
+            elif current_day_str == "Tuesday" and current_hour == 2 and current_minute == 0:
+                logging.info(f"🕒 [Schedule] {current_day_str} 02:00 - 자가 진화 시작")
+                bot.run_safe("Phase 4+: 자율 진화", bot.job_evolution)
 
             last_run_minute = current_minute
 
