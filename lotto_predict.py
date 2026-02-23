@@ -8,6 +8,7 @@ import datetime
 import re
 import multiprocessing
 import sys
+import traceback
 
 # [필수 라이브러리]
 # pip install torch numpy pandas google-genai gspread oauth2client google-api-python-client beautifulsoup4 requests python-dotenv
@@ -232,11 +233,11 @@ class LottoOrchestrator:
 
     def _auth(self):
         """
-        [권한 설정] 구글 시트 및 독스 API 연결
+        [권한 설정] 구글 시트 및 독스 API 연결 (안전장치 포함)
         """
         scope = [
             "https://spreadsheets.google.com/feeds",
-            "https://www.googleapis.com/auth/drive.file",
+            "https://www.googleapis.com/auth/drive",
             "https://www.googleapis.com/auth/documents",
             "https://www.googleapis.com/auth/spreadsheets"
         ]
@@ -245,14 +246,37 @@ class LottoOrchestrator:
              print(f"❌ 인증 파일 '{self.creds_file}'이 없습니다.")
              sys.exit(1)
 
-        creds = ServiceAccountCredentials.from_json_keyfile_name(self.creds_file, scope)
-        gc = gspread.authorize(creds)
+        # 1. JSON 파일 무결성 체크
         try:
-            docs = build('docs', 'v1', credentials=creds)
-        except:
-            docs = None
-            print("⚠️ Google Docs 연결 실패 (리포트 생성 불가)")
-        return gc, docs
+            with open(self.creds_file, 'r') as f:
+                creds_data = json.load(f)
+                client_email = creds_data.get('client_email')
+                print(f"📧 Service Account Email: {client_email}")
+                print(f"⚠️ 확인: 이 이메일을 구글 시트 '{SHEET_NAME}'의 공유자에 추가하셨나요?")
+        except Exception as e:
+            print(f"❌ JSON 파일 읽기 오류: {e}")
+            sys.exit(1)
+
+        # 2. 인증 시도
+        try:
+            creds = ServiceAccountCredentials.from_json_keyfile_name(self.creds_file, scope)
+            gc = gspread.authorize(creds)
+
+            # Docs 서비스
+            try:
+                docs = build('docs', 'v1', credentials=creds)
+            except:
+                docs = None
+                print("⚠️ Google Docs 연결 실패 (리포트 생성 불가)")
+
+            return gc, docs
+
+        except Exception as e:
+            print("\n❌ [CRITICAL] 구글 인증 실패!")
+            print(f"   Error: {e}")
+            print("   💡 해결책: 'creds_lotto.json'의 'private_key'가 손상되었을 수 있습니다.")
+            print("   💡 해결책: 구글 클라우드 콘솔에서 새 키를 다운로드 받아 덮어쓰세요.")
+            sys.exit(1)
 
     def get_sheet(self):
         """
@@ -271,6 +295,7 @@ class LottoOrchestrator:
                 return self.gc.open(SHEET_NAME)
             except Exception as e2:
                 print(f"❌ 이름으로도 열기 실패: {e2}")
+                print("💡 힌트: 위 Service Account Email을 시트 공유 목록에 추가하세요!")
                 sys.exit(1)
 
     # --- [Phase 1] 지능형 동기화 (네이버 검색) ---
@@ -323,6 +348,7 @@ class LottoOrchestrator:
 
         except Exception as e:
             print(f"❌ 동기화 중 오류 발생: {e}")
+            traceback.print_exc()
 
     def _get_naver_latest_round(self):
         """네이버 검색에서 '1212회차' 같은 텍스트를 찾아 최신 회차를 반환합니다."""
@@ -375,8 +401,6 @@ class LottoOrchestrator:
 
             # 2. Regex Fallback (정규식 백업)
             print(f"   ⚠️ AI 파싱 실패. 정규식으로 시도합니다...")
-            # 텍스트에서 1~45 사이의 숫자가 7개 연속으로 나오는 패턴을 찾음 (단순화)
-            # 네이버 구조상 날짜(20xx.xx.xx) 뒤에 번호가 나옴
 
             date_match = re.search(r'(\d{4}\.\d{2}\.\d{2})', text)
             date_str = date_match.group(1) if date_match else datetime.datetime.now().strftime("%Y-%m-%d")
@@ -390,12 +414,8 @@ class LottoOrchestrator:
                     if n_int not in valid_nums: # 중복 방지 (보너스 제외)
                         valid_nums.append(n_int)
 
-            # 보통 당첨번호 6개 + 보너스 1개 = 7개 필요
-            # 네이버 검색 결과엔 잡다한 숫자가 많으므로, 이 방식은 위험할 수 있음.
-            # 하지만 '당첨번호' 키워드 근처를 찾는 것이 좋음.
-
             if len(valid_nums) >= 7:
-                # 대략적으로 6개+1개라고 가정 (정확도 낮음, AI가 처리하는게 베스트)
+                # 대략적으로 6개+1개라고 가정
                 return {
                     "drwNo": round_no,
                     "drwNoDate": date_str,
@@ -567,14 +587,38 @@ class LottoOrchestrator:
 if __name__ == "__main__":
     app = LottoOrchestrator()
 
-    # 1. 데이터 동기화
-    app.sync_data()
+    # Check for Scheduled Mode (GitHub Actions / Cron)
+    if "--scheduled" in sys.argv:
+        day = datetime.datetime.now().strftime("%a")
+        print(f"🗓️ Scheduled Mode: Today is {day}")
 
-    # 2. 모델 학습
-    model, data = app.train_brain()
+        if day == "Sun":
+            # Sunday: Only Sync Data
+            app.sync_data()
+        elif day == "Mon":
+            # Monday: Weekly Analysis (Training)
+            app.train_brain()
+        elif day == "Wed":
+            # Wednesday: Final Prediction & Report
+            # (Need to train first to get model)
+            model, data = app.train_brain()
+            if model and data:
+                app.generate_report(model, data)
+        else:
+            print("💤 No scheduled mission for today.")
 
-    # 3. 결과 보고
-    if model and data:
-        app.generate_report(model, data)
+    else:
+        # Default: Full Cycle (Manual Execution)
+        print("🚀 Manual Mode: Executing Full Strategy...")
+
+        # 1. Sync
+        app.sync_data()
+
+        # 2. Train
+        model, data = app.train_brain()
+
+        # 3. Report
+        if model and data:
+            app.generate_report(model, data)
 
     print("\n✅ 작전 완료 (Mission Accomplished).")

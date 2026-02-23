@@ -103,7 +103,7 @@ def main():
 
     # 3. Force Fire Mechanism
     # If list is empty or failed, we MUST try a known model directly.
-    target_models = available_models if available_models else ['gemini-2.5-flash', 'gemini-3-flash-preview']
+    target_models = available_models if available_models else ['gemini-1.5-flash', 'gemini-1.5-pro']
 
     if not available_models:
         print("\n⚠️ No models discovered via List API.")
