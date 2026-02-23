@@ -1,111 +1,75 @@
-# Hybrid Sniper V5: 지능형 데이터 자동화 패키지 (Phase 1)
+# 🎱 Hybrid Sniper V5: 자율 진화형 로또 분석 시스템
 
-이 문서는 Hybrid Sniper V5 시스템의 핵심인 **데이터 자동 수집 및 관리 엔진**에 대한 설명서입니다.  
-Gemini 1.5 Flash AI를 활용하여 웹상의 비정형 데이터를 정형 데이터로 변환하고, 구글 시트를 자동으로 업데이트합니다.
-
----
-
-## 📂 파일 목록 및 역할
-
-### 1. `lotto_updater.py` (핵심 엔진)
-- **역할**: 로또 당첨 결과를 웹에서 수집하고, Gemini AI를 통해 JSON으로 파싱하여 구글 시트에 저장합니다.
-- **주요 기능**:
-  - `Model Explorer`: 사용 가능한 Gemini 모델을 탐색하고 최적의 모델(Gemini 1.5 Flash)을 선택합니다.
-  - `fetch_lotto_data_via_gemini(round_no)`: 특정 회차의 검색 결과를 크롤링하고 AI에게 파싱을 요청합니다.
-  - `update_sheet(data)`: 파싱된 데이터를 구글 시트('로또 max')에 추가합니다.
-  - `check_schedule()`: `schedule_config.json`과 현재 시간을 비교하여 실행 여부를 결정합니다.
-  - `log_execution()`: 실행 결과와 상태를 'Log' 시트에 기록합니다.
-
-### 2. `schedule_config.json` (설정 파일)
-- **역할**: 사용자가 실행 요일과 시간을 관리하는 파일입니다.
-- **기본 설정**: 매주 토요일 21:00 (KST) 실행.
-- **활용**: 스크립트 실행 시 이 파일을 참조하여 현재 시간이 실행 허용 범위(Window) 내인지 확인합니다.
-
-### 3. `.github/workflows/lotto_sync.yml` (자동화 설정)
-- **역할**: GitHub Actions를 통해 클라우드 환경에서 정해진 시간에 스크립트를 실행합니다.
-- **트리거**:
-  - `schedule`: 매주 토요일 12:00 UTC (한국 시간 21:00) 자동 실행.
-  - `workflow_dispatch`: GitHub 웹에서 수동으로 즉시 실행 가능 (Force Run).
+**Hybrid Sniper V5**는 네이버 검색 결과 파싱, LSTM 딥러닝 분석, 통계적 필터링, 그리고 LLM(Gemini)의 최종 판단을 결합한 4단계 하이브리드 로또 예측 시스템입니다.
+Apple Silicon (M5) 환경에 최적화되어 있으며, 한국 표준시(KST)를 기준으로 모든 작업이 자동화되어 있습니다.
 
 ---
 
-## 🛠️ 업데이트 가이드 (유지보수)
+## 🏛️ 시스템 아키텍처 (4-Phase Architecture)
 
-### 새로운 데이터를 추가 수집하고 싶을 때
-1. **Gemini 프롬프트 수정**: `lotto_updater.py`의 `fetch_lotto_data_via_gemini` 함수 내 `prompt` 변수를 수정하여 원하는 데이터 필드를 요청하세요.
-2. **JSON 파싱 로직 확인**: Gemini가 반환하는 JSON 키가 프롬프트 요청과 일치하는지 확인하세요.
-3. **시트 저장 로직 수정**: `update_sheet` 함수에서 `ws.append_row`에 전달되는 리스트(`row`)에 새로운 필드를 추가하세요. (구글 시트 헤더도 맞춰야 합니다.)
+이 프로젝트는 각 역할이 완벽히 분리된 4개의 독립적인 Phase로 구성됩니다.
 
-### 실행 스케줄을 변경하고 싶을 때
-1. **GitHub Actions**: `.github/workflows/lotto_sync.yml`의 `cron` 값을 수정하세요. (UTC 기준임에 주의)
-2. **로컬/스크립트 검증**: `schedule_config.json`의 `day_of_week`와 `hour`를 수정하세요.
+### 🔄 Phase 1: 데이터 동기화 (Data Sync)
+- **실행 시간:** 매주 **일요일 02:00 (KST)**
+- **역할:** 최신 로또 당첨 결과를 네이버에서 검색하고, **Gemini AI**를 통해 비정형 텍스트를 파싱하여 구글 시트에 자동 저장합니다.
+- **특징:** 공식 API가 없어도 AI가 사람처럼 검색 결과를 읽고 처리합니다.
 
----
+### 🧠 Phase 2: 특징 학습 (Feature Learning)
+- **실행 시간:** 매주 **월요일 02:00 (KST)**
+- **역할:** 과거 데이터를 바탕으로 **LSTM 신경망**을 학습시킵니다.
+- **핵심:** 학습된 결과는 예측에 바로 쓰이지 않고, **가중치 파일(`hybrid_sniper_v5_state.pth`)** 형태로만 저장됩니다.
+- **최적화:** M5 Neural Engine(MPS)을 사용하여 고속 연산을 수행합니다.
 
-## 🗑️ 삭제 가이드 (안전한 제거)
+### 🔮 Phase 3: 하이브리드 예측 (Hybrid Strategy) 🔥
+- **실행 시간:** 매주 **수요일 02:00 (KST)**
+- **역할:** 저장된 '두뇌(가중치)'를 깨워 실전 예측을 수행합니다.
+- **4단계 프로세스:**
+  1. **Top 20 압축:** AI 모델이 확률이 가장 높은 상위 20개 번호를 선정.
+  2. **1만 개 시뮬레이션:** Top 20 번호 내에서 10,000개의 무작위 조합 생성.
+  3. **통계적 필터링:** 합계(100~170), 홀짝(2:4~4:2) 규칙으로 50개 후보 압축.
+  4. **LLM 최종 선별:** Gemini에게 50개 중 가장 유망한 5~10개를 고르도록 요청.
 
-이 기능을 시스템에서 제거하거나 파일을 삭제할 때 다음 체크리스트를 확인하세요.
-
-- [ ] **GitHub Actions 비활성화**: `.github/workflows/lotto_sync.yml` 파일을 삭제하거나 비활성화하여 자동 실행을 중단하세요.
-- [ ] **의존성 확인**: 다른 파이썬 파일이 `lotto_updater.py`를 import 하고 있는지 확인하세요. (현재는 독립 실행 모듈임)
-- [ ] **구글 시트 권한**: `creds_lotto.json` (Service Account)의 시트 접근 권한을 해제하거나 키를 파기해도 됩니다.
-- [ ] **환경 변수 정리**: 로컬의 `.env` 파일이나 GitHub Secrets에서 `GEMINI_API_KEY`, `GOOGLE_CREDS_JSON`을 삭제하세요.
-
----
-
-## ⚠️ 기술 규격 및 주의사항
-- **환경**: Python 3.10+
-- **필수 라이브러리**: `google-genai` (New SDK), `gspread`, `oauth2client`, `beautifulsoup4`, `requests`, `python-dotenv`
-- **인증**: GitHub Secrets에 `GOOGLE_CREDS_JSON`과 `GEMINI_API_KEY`가 설정되어 있어야 합니다.
-
-<br>
-
----
----
-
-# 🚀 Hybrid Sniper V5: Dual-Mode & AI Taxonomy (Final Edition)
-
-이 섹션은 시스템의 **최종 완성형**인 **이원화 실행 모드 및 통합 분석 엔진**에 대한 설명입니다.
-사용자님의 M5 MacBook 하드웨어를 보호하면서도, 상황에 따라 유연하게 실행할 수 있는 두 가지 모드를 제공합니다.
-
-## 🔀 실행 모드 (Execution Modes)
-
-### 1. Manual Mode (매뉴얼 모드 - Full Cycle)
--   **명령어**: `python lotto_predict.py`
--   **설명**: 사령관님의 직접 명령으로 간주하여, **[데이터 수집 -> 통합 분석(ML+DL) -> 최종 저격]** 전 과정을 논스톱으로 수행합니다.
--   **안전장치**: 데이터 수집 3회 실패 시 자동 중단 및 단계별 **하드웨어 쿨링 타임(5~10초)**이 적용됩니다.
-
-### 2. Scheduled Mode (스케줄 모드 - Distributed)
--   **명령어**: `python lotto_predict.py --scheduled`
--   **설명**: 자동화 스케줄러(cron 등)에 의해 실행될 때 사용됩니다. 오늘 요일에 맞는 미션만 수행하고 종료합니다.
-    -   **일**: Sync Data
-    -   **월**: Total Analysis (ML/DL)
-    -   **수**: Final Strike
-
-## 🧠 AI Taxonomy & Architecture (기술 체계)
-
-### 1. 지도 학습 (Supervised Learning)
--   **분류(Classification)**: RandomForest, XGBoost, CatBoost 등의 앙상블 모델이 당첨 확률을 예측합니다.
--   **회귀(Regression)**: 시계열 데이터의 추세를 분석합니다.
--   **인코더-디코더(Encoder-Decoder)**: LSTM, CNN 모델이 데이터의 시간적 특징을 추출하고 재구성합니다.
--   **가시성(Visibility)**: 학습 진행률(N/9 Model)을 실시간 로그로 출력하여 진행 상황을 명확히 알 수 있습니다.
-
-### 2. 비지도 학습 (Unsupervised Learning)
--   **군집화(Clustering)**: KMeans 알고리즘이 최근 당첨 번호들의 패턴을 그룹화합니다.
--   **차원 축소(Dimensionality Reduction)**: PCA 기법을 사용하여 복잡한 고차원 데이터의 핵심 특징을 시각화 가능한 수준으로 압축하여 분석하고, 분산 비율을 로그에 남깁니다.
-
-### 3. 강화 학습 (Reinforcement Learning)
--   **PPO 가중치**: 예측 결과에 대한 보상(Reward)을 기반으로 성과가 좋은 모델에게 더 높은 가중치를 부여하는 최적화 과정을 수행합니다.
-
-### 4. 생성형 AI (Generative AI)
--   **LLM 필터링**: Gemini 1.5 Pro (또는 가용한 최적 모델)가 유전 알고리즘이 만든 후보군을 검토하고, 최종 10개 조합을 생성합니다.
--   **Dynamic Discovery**: API 연결 시 사용 가능한 모델(Flash > Pro)을 자동으로 탐색하여 연결합니다.
+### 🧬 Phase 4: 자율 진화 및 평가 (Orchestration)
+- **실행 시간:**
+  - **목요일 02:00 (KST):** 지난주 예측 성과(당첨 여부)를 평가하고 로그를 남깁니다.
+  - **금요일 02:00 (KST):** AI가 스스로 코드를 분석하고 개선점을 제안합니다. (사용자 승인 필요)
 
 ---
 
-## 🛡️ 안전 제1수칙 (Safety Protocols)
+## 🚀 시작 가이드 (Getting Started)
 
-1.  **자원 제한**: 전체 CPU 코어 중 2개를 시스템용으로 남겨두어 쾌적함을 유지합니다.
-2.  **Safety Pause**: ML과 DL 분석 사이(5초), 전체 사이클 단계 간(10초), 유전 알고리즘 세대 간(1.5초)에 **휴식 시간**을 두어 M5 칩의 과열을 방지합니다.
-3.  **Memory Clean**: 단계별로 메모리를 강제 회수(GC)하여 안정성을 확보합니다.
-4.  **Sync Protection**: 데이터 수집 3회 실패 시 자동으로 중단하여 무한 루프를 방지합니다.
+### 1. 환경 설정
+필요한 라이브러리를 설치합니다.
+```bash
+pip install -r requirements.txt
+```
+
+### 2. 설정 파일 준비
+- `.env` 파일에 `GEMINI_API_KEY`를 입력하세요.
+- `creds_lotto.json` (구글 서비스 계정 키)를 프로젝트 폴더에 넣으세요.
+
+### 3. 스케줄러 실행 (권장)
+백그라운드에서 모든 작업을 자동으로 수행하려면 아래 명령어를 실행하세요.
+```bash
+python main_scheduler.py
+```
+> **참고:** 터미널을 끄면 스케줄러도 종료됩니다. `nohup` 등을 사용하거나 화면 켜짐을 유지하세요.
+
+### 4. 수동 실행 (테스트)
+각 단계를 즉시 테스트하고 싶다면 아래처럼 실행하세요.
+```bash
+python lotto_predict.py
+```
+
+---
+
+## ⚠️ 안전 및 최적화 (Safety & Optimization)
+
+- **M5 가속:** `torch.device('mps')`를 사용하여 Apple Silicon의 성능을 극대화합니다.
+- **발열 관리:** 학습 시 코어 수를 6개로 제한하고, 주기적으로 메모리(`gc.collect`)를 정리하여 시스템 과부하를 막습니다.
+- **KST 준수:** 서버의 시간대가 어디든 상관없이 무조건 **한국 시간(Asia/Seoul)**을 기준으로 작동합니다.
+
+---
+
+## 📜 라이선스 및 면책 조항
+이 프로젝트는 연구 및 학습 목적으로 개발되었습니다. 로또 당첨을 보장하지 않으며, AI의 예측 결과는 재미로만 참고하시기 바랍니다.
