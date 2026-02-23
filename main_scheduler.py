@@ -149,7 +149,6 @@ class LottoScheduler:
         누락된 이전 단계가 있다면 현재 단계 실행 전에 수행합니다.
         """
         state = self.state_manager.load_state()
-        today_str = datetime.now().strftime("%Y-%m-%d")
 
         # 1. 동기화 (Phase 1) 누락 확인 (최근 3일 내 기록 없음)
         if not state.get('last_sync_date') or (datetime.now() - datetime.strptime(state['last_sync_date'], "%Y-%m-%d")).days > 3:
@@ -193,18 +192,31 @@ class LottoScheduler:
         self.orchestrator.evaluate_performance()
 
     def job_evolution(self):
+        """
+        Phase 4+: 코드 및 프롬프트 진화
+        - 코드 수정은 터미널 상호작용 필요 (Interactive)
+        - 프롬프트 진화(Meta-Prompting)는 자동 수행
+        """
         if self.evolution_manager:
-            if sys.stdin.isatty():
-                result = self.evolution_manager.execute_evolution_cycle('lotto_predict.py')
-            else:
-                logging.info("ℹ️ 백그라운드 모드: 진화 제안 생성만 시도합니다.")
-                # 실제로는 제안 생성 로직을 호출해야 함
-                result = {"success": False, "detail": "Background mode"}
+            logging.info("🧬 [Self-Evolution] 진화 사이클 시작...")
 
-            # 진화 결과 기록
-            self.orchestrator.log_operation("Phase 4+: Evolution",
-                                            "SUCCESS" if result.get("success") else "SKIP",
-                                            result.get("detail", ""))
+            # EvolutionManager 호출 시 state_manager를 전달하여 프롬프트 업데이트 가능하게 함
+            results = self.evolution_manager.execute_evolution_cycle(
+                'lotto_predict.py',
+                state_manager=self.state_manager
+            )
+
+            # 로그 기록
+            log_msg = []
+            if results.get('code', {}).get('success'):
+                log_msg.append("Code: Updated")
+            if results.get('prompt', {}).get('success'):
+                version = results['prompt']['version']
+                log_msg.append(f"Prompt: {version}")
+
+            detail_msg = ", ".join(log_msg) if log_msg else "No changes"
+            self.orchestrator.log_operation("Phase 4+: Evolution", "SUCCESS", detail_msg)
+
         else:
             logging.warning("⚠️ Evolution Manager 로드 실패")
 
@@ -214,11 +226,11 @@ class LottoScheduler:
 def run_kst_schedule():
     bot = LottoScheduler()
 
-    print("🚀 [Scheduler] Hybrid Sniper V5 지능형 스케줄러 (Smart Catch-up Enabled) 시작...")
+    print("🚀 [Scheduler] Hybrid Sniper V5 지능형 스케줄러 (Meta-Prompting Enabled) 시작...")
     print("   - 매일 02:00 (KST): 누락된 작전 확인 및 수행 (Catch-up)")
     print("   - 일요일 02:00 (KST): [기초 공사] 데이터 수집 -> 모델 학습")
     print("   - 월요일 02:00 (KST): [실전 사격] 정예 번호 예측 -> 성과 평가")
-    print("   - 화요일 02:00 (KST): [자가 진화] 코드 분석 및 개선 제안")
+    print("   - 화요일 02:00 (KST): [자가 진화] 코드 및 프롬프트 자가 개선")
 
     kst = pytz.timezone('Asia/Seoul')
     last_run_minute = -1
