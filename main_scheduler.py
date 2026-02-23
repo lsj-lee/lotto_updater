@@ -63,10 +63,10 @@ class LottoScheduler:
             torch.mps.empty_cache()
 
     def check_resource_safety(self):
-        """[시스템 감시] CPU 점유율이 80%를 초과하면 작전 중단"""
+        """[시스템 감시] CPU 점유율이 60%를 초과하면 작전 중단 (Absolute Safety Mode)"""
         cpu_usage = psutil.cpu_percent(interval=1)
-        if cpu_usage > 80:
-            logging.warning(f"⚠️ [High Load] CPU {cpu_usage}% > 80%. M5 보호를 위해 작전 이월.")
+        if cpu_usage > 60:
+            logging.warning(f"⚠️ M5 절대 안전 모드 가동: CPU 부하가 {cpu_usage}% > 60%를 초과하여 작전을 내일로 이월합니다.")
             self.execute_auto_sleep()
             return False
         return True
