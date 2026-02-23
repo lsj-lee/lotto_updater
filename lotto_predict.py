@@ -146,9 +146,8 @@ class LottoOrchestrator:
         api_key = os.getenv("GEMINI_API_KEY")
         self.client = self._init_gemini(api_key)
 
-        # [모델 설정] gemini-2.0-flash-exp (또는 2.5-flash) 사용
-        # 탐색 로직을 제거하고 지정된 모델을 사용합니다.
-        self.model_name = "gemini-2.0-flash-exp"
+        # [모델 설정] 정찰 결과에 따라 gemini-2.5-flash 모델을 기본 지휘관으로 설정
+        self.model_name = "gemini-2.5-flash"
         print(f"🛰️ [System] 지휘관 모델 설정: {self.model_name}")
 
     def _auth(self):
