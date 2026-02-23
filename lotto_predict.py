@@ -60,6 +60,21 @@ STATE_A_FILE = 'state_A.pkl'
 STATE_B_FILE = 'state_B.pkl'
 STATE_TOTAL_FILE = 'state_total.pkl'
 
+# Phase 1: Chameleon Camouflage Headers
+REAL_BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Referer": "https://dhlottery.co.kr/common.do?method=main",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-User": "?1"
+}
+
 # Hardware Safety: Device Configuration
 if torch.backends.mps.is_available():
     DEVICE = torch.device("mps")
@@ -204,7 +219,7 @@ class HybridSniperOrchestrator:
         self.log_to_sheet("SYSTEM", "MANUAL_START", "Full Cycle Initiated by Commander.")
 
         # 1. Update Data
-        print("\n[Phase 1] Data Synchronization (Anti-GIGO)")
+        print("\n[Phase 1] Data Synchronization (Dual-Strike)")
         self.mission_sunday_sync()
 
         # Safety Pause
@@ -335,10 +350,8 @@ class HybridSniperOrchestrator:
         print(f"🤖 [Generative AI] {model_display}: Strategic Filtering...")
         full_data = self.data_manager.fetch_data()
 
-        # [Fix] Type Correction for Phase 3
-        # full_data is a list of lists of ints [[1,2,3,4,5,6], ...]
-        # Previous code assumed dicts: [d['nums'] for d in full_data[-5:]] -> Error
-        last_seq = full_data[-5:] # Since fetch_data now returns simple list of lists
+        # [Phase 3 Type Safety]
+        last_seq = full_data[-5:]
 
         gemini_filter = GeminiStrategyFilter(self.client, self.model_name)
         final_games = gemini_filter.filter_candidates(elite_candidates, last_seq)
@@ -387,7 +400,10 @@ class HybridSniperOrchestrator:
                 break
 
             print(f"🔍 Fetching Round {r}...")
-            data = self.fetch_lotto_data_official(r)
+
+            # [Dual-Strike] Phase 1 Data Collection
+            data = self.fetch_lotto_data_dual_strike(r)
+
             if data:
                 self.data_manager.update_sheet_row(data)
                 print(f"💾 Updated Round {r}")
@@ -399,17 +415,21 @@ class HybridSniperOrchestrator:
             # [Rate Limit Defense]
             time.sleep(0.5)
 
-    def fetch_lotto_data_official(self, round_no):
+    def fetch_lotto_data_dual_strike(self, round_no):
         """
-        [Phase 1 Fix] Uses Donghang Lottery Official API instead of Gemini scraping.
+        [Phase 1] Dual-Strike Mechanism
+        1. Primary: Chameleon API Call (Official API with Mac Headers)
+        2. Fallback: Search Scraping + Gemini Parsing (Intelligent Crawler)
         """
-        url = f"https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo={round_no}"
+        # --- Strike 1: Chameleon API ---
         try:
-            response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+            url = f"https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo={round_no}"
+            response = requests.get(url, headers=REAL_BROWSER_HEADERS, timeout=5)
+
             if response.status_code == 200:
                 data = response.json()
                 if data.get('returnValue') == 'success':
-                    # Normalize keys to match system expectations
+                    print(f"   ✅ [Strike 1] Official API Success (Round {round_no})")
                     return {
                         'drwNo': data['drwNo'],
                         'drwNoDate': data['drwNoDate'],
@@ -422,11 +442,47 @@ class HybridSniperOrchestrator:
                         'bnusNo': data['bnusNo'],
                         'firstPrzwnerCo': data['firstPrzwnerCo'],
                         'firstAccumamnt': data['firstAccumamnt'],
-                        'firstPrzwnerStore': '' # API doesn't provide this, empty string fallback
+                        'firstPrzwnerStore': ''
                     }
-            return None
         except Exception as e:
-            print(f"❌ Official API Error: {e}")
+            print(f"   ⚠️ [Strike 1] API Failed: {e}")
+
+        # --- Strike 2: Fallback (Search Scraping) ---
+        print(f"   🚀 [Strike 2] Initiating Fallback: Intelligent Search Scraping...")
+        if not self.client or not self.model_name:
+            print("   ❌ Fallback Aborted: Gemini Client not ready.")
+            return None
+
+        search_url = f"https://search.naver.com/search.naver?query=로또+{round_no}회+당첨번호"
+        try:
+            response = requests.get(search_url, headers=REAL_BROWSER_HEADERS, timeout=10)
+            soup = BeautifulSoup(response.text, 'html.parser')
+            text_content = soup.get_text()[:8000] # Increased context window
+
+            prompt = f"""
+            Extract strict JSON data for Lotto Round {round_no} from this text.
+            Required fields: drwNo(int), drwtNo1..6(int), bnusNo(int), firstAccumamnt(int), firstPrzwnerCo(int), drwNoDate(str YYYY-MM-DD).
+            If data is missing, return empty JSON.
+            Text: {text_content}
+            """
+
+            ai_resp = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt
+            )
+
+            json_str = ai_resp.text.strip().replace('```json', '').replace('```', '')
+            data = json.loads(json_str)
+
+            if int(data.get('drwNo', 0)) == round_no:
+                print(f"   🪂 [Strike 2] Fallback Scraping Success (Round {round_no})")
+                return data
+            else:
+                print(f"   ❌ [Strike 2] AI Extraction Mismatch.")
+                return None
+
+        except Exception as e:
+            print(f"   ❌ [Strike 2] Fallback Failed: {e}")
             return None
 
     def update_report(self, games):
