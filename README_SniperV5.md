@@ -55,5 +55,57 @@ Gemini 1.5 Flash AI를 활용하여 웹상의 비정형 데이터를 정형 데�
 
 ## ⚠️ 기술 규격 및 주의사항
 - **환경**: Python 3.10+
-- **필수 라이브러리**: `google-generativeai`, `gspread`, `oauth2client`, `beautifulsoup4`, `requests`, `python-dotenv`
+- **필수 라이브러리**: `google-genai` (New SDK), `gspread`, `oauth2client`, `beautifulsoup4`, `requests`, `python-dotenv`
 - **인증**: GitHub Secrets에 `GOOGLE_CREDS_JSON`과 `GEMINI_API_KEY`가 설정되어 있어야 합니다.
+
+<br>
+
+---
+---
+
+# 🚀 Hybrid Sniper V5: Dual-Mode & AI Taxonomy (Final Edition)
+
+이 섹션은 시스템의 **최종 완성형**인 **이원화 실행 모드 및 통합 분석 엔진**에 대한 설명입니다.
+사용자님의 M5 MacBook 하드웨어를 보호하면서도, 상황에 따라 유연하게 실행할 수 있는 두 가지 모드를 제공합니다.
+
+## 🔀 실행 모드 (Execution Modes)
+
+### 1. Manual Mode (매뉴얼 모드 - Full Cycle)
+-   **명령어**: `python lotto_predict.py`
+-   **설명**: 사령관님의 직접 명령으로 간주하여, **[데이터 수집 -> 통합 분석(ML+DL) -> 최종 저격]** 전 과정을 논스톱으로 수행합니다.
+-   **안전장치**: 데이터 수집 3회 실패 시 자동 중단 및 단계별 **하드웨어 쿨링 타임(5~10초)**이 적용됩니다.
+
+### 2. Scheduled Mode (스케줄 모드 - Distributed)
+-   **명령어**: `python lotto_predict.py --scheduled`
+-   **설명**: 자동화 스케줄러(cron 등)에 의해 실행될 때 사용됩니다. 오늘 요일에 맞는 미션만 수행하고 종료합니다.
+    -   **일**: Sync Data
+    -   **월**: Total Analysis (ML/DL)
+    -   **수**: Final Strike
+
+## 🧠 AI Taxonomy & Architecture (기술 체계)
+
+### 1. 지도 학습 (Supervised Learning)
+-   **분류(Classification)**: RandomForest, XGBoost, CatBoost 등의 앙상블 모델이 당첨 확률을 예측합니다.
+-   **회귀(Regression)**: 시계열 데이터의 추세를 분석합니다.
+-   **인코더-디코더(Encoder-Decoder)**: LSTM, CNN 모델이 데이터의 시간적 특징을 추출하고 재구성합니다.
+-   **가시성(Visibility)**: 학습 진행률(N/9 Model)을 실시간 로그로 출력하여 진행 상황을 명확히 알 수 있습니다.
+
+### 2. 비지도 학습 (Unsupervised Learning)
+-   **군집화(Clustering)**: KMeans 알고리즘이 최근 당첨 번호들의 패턴을 그룹화합니다.
+-   **차원 축소(Dimensionality Reduction)**: PCA 기법을 사용하여 복잡한 고차원 데이터의 핵심 특징을 시각화 가능한 수준으로 압축하여 분석하고, 분산 비율을 로그에 남깁니다.
+
+### 3. 강화 학습 (Reinforcement Learning)
+-   **PPO 가중치**: 예측 결과에 대한 보상(Reward)을 기반으로 성과가 좋은 모델에게 더 높은 가중치를 부여하는 최적화 과정을 수행합니다.
+
+### 4. 생성형 AI (Generative AI)
+-   **LLM 필터링**: Gemini 1.5 Pro (또는 가용한 최적 모델)가 유전 알고리즘이 만든 후보군을 검토하고, 최종 10개 조합을 생성합니다.
+-   **Dynamic Discovery**: API 연결 시 사용 가능한 모델(Flash > Pro)을 자동으로 탐색하여 연결합니다.
+
+---
+
+## 🛡️ 안전 제1수칙 (Safety Protocols)
+
+1.  **자원 제한**: 전체 CPU 코어 중 2개를 시스템용으로 남겨두어 쾌적함을 유지합니다.
+2.  **Safety Pause**: ML과 DL 분석 사이(5초), 전체 사이클 단계 간(10초), 유전 알고리즘 세대 간(1.5초)에 **휴식 시간**을 두어 M5 칩의 과열을 방지합니다.
+3.  **Memory Clean**: 단계별로 메모리를 강제 회수(GC)하여 안정성을 확보합니다.
+4.  **Sync Protection**: 데이터 수집 3회 실패 시 자동으로 중단하여 무한 루프를 방지합니다.
