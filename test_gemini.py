@@ -1,150 +1,133 @@
 import os
 import sys
 import time
+from dotenv import load_dotenv
 
-# [Execution Guide] Phase 1: Pre-flight Check
-print("\n" + "="*60)
-print("🚀 [Sniper V5] Gemini API Diagnostic Tool")
-print("   - Required Library: google-genai (v1.0+)")
-print("   - Command: pip install google-genai python-dotenv")
-print("="*60 + "\n")
-
-# Try importing the new SDK
+# [필수 라이브러리]
 try:
     from google import genai
     from google.genai import types
 except ImportError:
-    print("❌ Critical: 'google-genai' library not found.")
-    print("💡 Please run: pip install google-genai")
+    print("❌ 'google-genai' 라이브러리가 필요합니다. pip install google-genai를 실행하세요.")
     sys.exit(1)
 
-from dotenv import load_dotenv
-
-def validate_api_key(key):
-    """
-    [Security] Validates API Key format without exposing the full key.
-    """
-    if not key:
-        return False, "Key is empty or None."
-
-    if key.strip() != key:
-        return False, "Key has leading/trailing whitespace. Check .env file."
-
-    if len(key) < 30: # Heuristic length check
-        return False, f"Key seems too short ({len(key)} chars). Expected > 30."
-
-    # Check for non-ascii chars (encoding issues)
-    if not key.isascii():
-         return False, "Key contains non-ASCII characters. Check file encoding."
-
-    return True, "Valid Format"
-
 def main():
-    print("🛰️ Initializing System Diagnostics...")
+    print("\n" + "="*60)
+    print("🚀 [Sniper V5] Gemini 모델 탐색 및 진단 도구 (Enhanced)")
+    print("="*60 + "\n")
 
-    # 1. Environment Variable Verification
+    # 1. 환경 변수 로드
     load_dotenv()
     api_key = os.getenv("GEMINI_API_KEY")
 
-    print(f"\n🔑 API Key Verification:")
-    is_valid, message = validate_api_key(api_key)
-
-    if not is_valid:
-        print(f"   ❌ {message}")
-        print("   ⚠️ Stopping Execution. Please fix .env file.")
+    if not api_key:
+        print("❌ .env 파일에 GEMINI_API_KEY가 없습니다.")
         sys.exit(1)
-    else:
-        masked_key = f"{api_key[:5]}...{api_key[-5:]}"
-        print(f"   ✅ Key Format OK ({masked_key})")
 
-    # Initialize Client
+    masked_key = f"{api_key[:5]}...{api_key[-5:]}"
+    print(f"🔑 API Key 확인됨: {masked_key}")
+
+    # 2. 클라이언트 초기화
     try:
         client = genai.Client(api_key=api_key)
-        print("   ✅ Client Initialized.")
+        print("✅ Gemini Client 초기화 성공.\n")
     except Exception as e:
-        print(f"   ❌ Client Initialization Failed: {e}")
+        print(f"❌ Client 초기화 실패: {e}")
         sys.exit(1)
 
-    # 2. Model List Scan (Detailed)
-    print("\n🔍 Scanning for available Gemini models...")
-    print("-" * 60)
-    print(f"{'Model Name':<40} | {'Status':<20}")
-    print("-" * 60)
+    # 3. 전체 모델 스캔 (Model Discovery)
+    print("🔍 [Step 1] 전체 모델 목록 스캔 중...")
+    print("-" * 80)
+    print(f"{'모델 ID (Model Name)':<40} | {'기능 (Methods)':<30}")
+    print("-" * 80)
 
     available_models = []
-    scan_failed = False
 
     try:
-        # Paging through models
-        # Note: In v1.0+, client.models.list() returns an iterator of Model objects
-        for model in client.models.list():
-            # Filter for generation capable models
-            # Attributes might vary, check capability safely
+        # Paging을 통해 모든 모델 가져오기
+        # page_size=1000으로 설정하여 한 번에 최대한 많이 가져옴
+        for model in client.models.list(config={'page_size': 1000}):
             methods = getattr(model, 'supported_generation_methods', [])
 
+            # 생성 기능(generateContent)이 있는 모델만 필터링
             if 'generateContent' in methods:
-                name = model.name.replace('models/', '')
-                print(f"{name:<40} | {'Ready 🟢':<20}")
-                available_models.append(name)
+                # 모델 이름 정제 (models/ 접두사 제거)
+                clean_name = model.name.replace('models/', '')
+                print(f"{clean_name:<40} | {'generateContent'}")
+                available_models.append(clean_name)
             else:
-                # Debug: Show other models too? No, keep it clean.
+                # 생성 기능이 없는 모델은 로그에만 남김 (Embeddings 등)
                 pass
 
     except Exception as e:
-        print(f"⚠️ Model List Error: {e}")
-        scan_failed = True
-        # Often purely permission errors on 'List' but 'Generate' might work
-        if "PERMISSION_DENIED" in str(e):
-            print("   -> Tip: Your API Key might lack 'List Models' permission but allow generation.")
-        elif "INVALID_ARGUMENT" in str(e):
-             print("   -> Tip: API Key might be invalid or project restriction.")
+        print(f"⚠️ 모델 목록 조회 실패: {e}")
+        print("   -> API 키 권한 문제이거나, 'List Models' API가 비활성화된 상태일 수 있습니다.")
+        print("   -> 하지만 'Generate Content'는 작동할 수 있으므로 강제 테스트를 진행합니다.")
 
-    print("-" * 60)
+    print("-" * 80)
 
-    # 3. Force Fire Mechanism
-    # If list is empty or failed, we MUST try a known model directly.
-    target_models = available_models if available_models else ['gemini-1.5-flash', 'gemini-1.5-pro']
+    # 4. 최적 모델 자동 선택 (Auto Selection)
+    target_model = None
 
-    if not available_models:
-        print("\n⚠️ No models discovered via List API.")
-        print("🚀 Initiating FORCE FIRE protocol on fallback models...")
+    if available_models:
+        print(f"\n✅ 총 {len(available_models)}개의 사용 가능 모델을 발견했습니다.")
+        # 우선순위: gemini-1.5-pro > gemini-1.5-flash > gemini-1.0-pro
+        priority_order = [
+            'gemini-1.5-pro',
+            'gemini-1.5-flash',
+            'gemini-1.0-pro',
+            'gemini-pro'
+        ]
+
+        for p_model in priority_order:
+            # 정확히 일치하거나 최신 버전(001, 002 등) 포함하는지 확인
+            matched = [m for m in available_models if p_model in m]
+            if matched:
+                # 가장 최신 버전(이름이 긴 것 or 사전순 뒤쪽) 선택
+                target_model = sorted(matched)[-1]
+                print(f"🎯 [Auto Select] 최적 모델 선택됨: {target_model}")
+                break
+
+        if not target_model:
+            target_model = available_models[0]
+            print(f"⚠️ 우선순위 모델이 없어 첫 번째 모델을 선택합니다: {target_model}")
     else:
-        print(f"\n🎯 {len(available_models)} models found. Selecting best candidate...")
-        # Priority sort
-        def model_priority(name):
-            if 'gemini-2.0' in name: return 4
-            if 'gemini-1.5-pro' in name: return 3
-            if 'gemini-1.5-flash' in name: return 2
-            return 1
-        target_models.sort(key=model_priority, reverse=True)
+        print("\n⚠️ 목록에서 사용 가능한 모델을 찾지 못했습니다.")
+        print("🚀 [Force Fire] 기본 모델(gemini-1.5-flash)로 강제 테스트를 시도합니다.")
+        target_model = 'gemini-1.5-flash'
 
-    # 4. Firing Test
-    best_model = target_models[0]
-    print(f"\n💥 Executing Firing Test on target: [{best_model}]")
+    # 5. 발사 테스트 (Firing Test)
+    print(f"\n💥 [Step 2] Firing Test 시작: {target_model}")
 
     try:
         response = client.models.generate_content(
-            model=best_model,
-            contents="Hello, Commander! Status Report."
+            model=target_model,
+            contents="Hello! Are you operational? Please respond with 'System Online'."
         )
 
-        print("\n📝 Mission Response:")
+        print("\n📝 [Response]")
         print(f"> {response.text.strip()}")
 
         print("\n" + "="*60)
-        print(f"✅ SYSTEM OPERATIONAL. Model [{best_model}] is active.")
+        print(f"✅ 테스트 성공! [{target_model}] 정상 작동 중.")
         print("="*60 + "\n")
 
     except Exception as e:
-        print(f"\n❌ Firing Test Failed on {best_model}:")
-        print(f"   Error: {e}")
-        print("\n💡 Troubleshooting:")
-        if "404" in str(e) or "NOT_FOUND" in str(e):
-             print("   - Model name might be incorrect or you don't have access.")
-        elif "400" in str(e) or "INVALID_ARGUMENT" in str(e):
-             print("   - API Key is likely invalid or project billing is disabled.")
-        elif "429" in str(e):
-             print("   - Quota exceeded. Slow down or check billing.")
+        print(f"\n❌ 테스트 실패 ({target_model}):")
+        print(f"   에러 메시지: {e}")
+
+        print("\n💡 [Troubleshooting 가이드]")
+        error_msg = str(e)
+        if "404" in error_msg or "NOT_FOUND" in error_msg:
+            print("   1. 모델명 오류: 해당 모델이 존재하지 않거나 접근 권한이 없습니다.")
+            print("   2. API 키 권한: 현재 키로는 이 모델을 사용할 수 없습니다.")
+        elif "400" in error_msg or "INVALID_ARGUMENT" in error_msg:
+            print("   1. API 키가 유효하지 않습니다. (.env 파일 확인)")
+            print("   2. 결제 계정(Billing)이 연결되지 않았을 수 있습니다.")
+        elif "429" in error_msg:
+            print("   1. 할당량 초과(Quota Exceeded). 잠시 후 다시 시도하세요.")
+        else:
+            print("   -> 알 수 없는 오류입니다. 구글 클라우드 콘솔을 확인하세요.")
 
 if __name__ == "__main__":
     main()
