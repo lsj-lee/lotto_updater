@@ -9,6 +9,8 @@ import re
 import sys
 import traceback
 import itertools
+import psutil
+from collections import deque
 
 # [필수 라이브러리]
 import numpy as np
@@ -39,8 +41,9 @@ SPREADSHEET_ID = '1lOifE_xRUocAY_Av-P67uBMKOV1BAb4mMwg_wde_tyA'
 CREDS_FILE = 'creds_lotto.json'
 SHEET_NAME = '로또 max'
 REC_SHEET_NAME = '추천번호'
-LOG_SHEET_NAME = 'Log'
+LOG_SHEET_NAME = '작전로그'  # [New] 고도화된 로그 시트
 STATE_FILE = 'hybrid_sniper_v5_state.pth'
+SNIPER_STATE_JSON = 'sniper_state.json'  # [New] 상태 기억 파일
 
 # 🚀 MacBook Pro M5 하드웨어 안전장치 (발열 관리 및 성능 최적화)
 USED_CORES = 6
@@ -140,13 +143,70 @@ class CreativeConnectionModel(nn.Module):
 # 🛰️ [System] Orchestrator (Main Logic)
 # ==========================================
 
+class SniperState:
+    """
+    [지능형 상태 관리자]
+    - sniper_state.json을 통해 작전 상황을 기록하고 복구합니다.
+    """
+    def __init__(self):
+        self.state_file = SNIPER_STATE_JSON
+        self.state = self.load_state()
+
+    def load_state(self):
+        if os.path.exists(self.state_file):
+            try:
+                with open(self.state_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except: pass
+        return {
+            "last_sync_date": None,
+            "last_train_date": None,
+            "last_predict_date": None,
+            "last_evolution_date": None,
+            "last_loss": 0.0,
+            "evolution_impact": 0.0 # 진화 후 손실 감소율
+        }
+
+    def save_state(self):
+        with open(self.state_file, 'w', encoding='utf-8') as f:
+            json.dump(self.state, f, ensure_ascii=False, indent=4)
+
+    def update_phase(self, phase_key, value=None):
+        if value is None:
+            value = datetime.datetime.now().strftime("%Y-%m-%d")
+        self.state[phase_key] = value
+        self.save_state()
+
+    def update_metric(self, key, value):
+        self.state[key] = value
+        self.save_state()
+
+class SystemMonitor:
+    """
+    [M5 하드웨어 감시관]
+    - CPU와 메모리 상태를 실시간으로 점검하여 과부하를 방지합니다.
+    """
+    @staticmethod
+    def check_health():
+        cpu_usage = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
+        mem_available_gb = memory.available / (1024 ** 3)
+        mem_percent = memory.percent
+
+        print(f"🩺 [System Check] CPU: {cpu_usage}% | RAM Free: {mem_available_gb:.1f}GB ({100-mem_percent}%)")
+
+        # 기준: CPU 50% 미만, 여유 메모리 30% 이상 (약 2GB 이상)
+        is_healthy = (cpu_usage < 50) and (mem_percent < 70)
+        return is_healthy, cpu_usage, mem_percent
+
 class LottoOrchestrator:
     def __init__(self):
-        self.gc = self._auth()
+        self.gc_client = self._auth()
         api_key = os.getenv("GEMINI_API_KEY")
         self.client = self._init_gemini(api_key)
+        self.state_manager = SniperState()
 
-        # [모델 설정] 정찰 결과에 따라 gemini-2.5-flash 모델을 기본 지휘관으로 설정
+        # [모델 설정] gemini-2.5-flash 고정
         self.model_name = "gemini-2.5-flash"
         print(f"🛰️ [System] 지휘관 모델 설정: {self.model_name}")
 
@@ -185,14 +245,45 @@ class LottoOrchestrator:
             return None
 
     def get_sheet(self):
-        try: return self.gc.open_by_key(SPREADSHEET_ID)
-        except: return self.gc.open(SHEET_NAME)
+        try: return self.gc_client.open_by_key(SPREADSHEET_ID)
+        except: return self.gc_client.open(SHEET_NAME)
 
     def _optimize_memory(self):
         """M5 메모리 누수 방지를 위한 강제 청소"""
         gc.collect()
         if torch.backends.mps.is_available():
             torch.mps.empty_cache()
+
+    def log_operation(self, phase, status, detail=""):
+        """
+        [작전로그 기록]
+        구글 시트 '작전로그' 탭에 실행 결과를 기록합니다.
+        """
+        try:
+            sh = self.get_sheet()
+            try: ws = sh.worksheet(LOG_SHEET_NAME)
+            except:
+                ws = sh.add_worksheet(title=LOG_SHEET_NAME, rows=1000, cols=10)
+                ws.append_row(["Timestamp", "Day", "Phase", "Status", "CPU/MEM", "Detail"])
+
+            now = datetime.datetime.now()
+            day_str = now.strftime("%A")
+            cpu = psutil.cpu_percent()
+            mem = psutil.virtual_memory().percent
+
+            icon = "✅" if status == "SUCCESS" else "❌" if status == "FAIL" else "💤"
+
+            ws.insert_row([
+                now.strftime("%Y-%m-%d %H:%M:%S"),
+                day_str,
+                phase,
+                f"{icon} {status}",
+                f"{cpu}% / {mem}%",
+                detail
+            ], 2)
+            print(f"📝 [Log] 작전로그 기록 완료: {phase} - {status}")
+        except Exception as e:
+            print(f"⚠️ 로그 기록 실패: {e}")
 
     # -------------------------------------------------------------------------
     # 🔄 [Phase 1] Data Sync (일요일 02:00)
@@ -205,7 +296,7 @@ class LottoOrchestrator:
             sh = self.get_sheet()
             ws = sh.get_worksheet(0)
             
-            # 현재 시트에 저장된 마지막 회차 확인 (1열: 회차)
+            # 현재 시트에 저장된 마지막 회차 확인
             col1 = ws.col_values(1)
             rounds = []
             for val in col1:
@@ -216,26 +307,29 @@ class LottoOrchestrator:
             portal_last = self._get_naver_latest_round()
             print(f"   📊 상태: 내 파일({local_last}회) vs 네이버({portal_last}회)")
 
+            updated_count = 0
             if portal_last > local_last:
-                # 누락된 회차 순차 수집
                 for r in range(local_last + 1, portal_last + 1):
                     print(f"   🔍 {r}회차 데이터 수집 중...")
                     data = self._scrape_round_detail(r)
                     if data:
-                        # 시트 형식에 맞게 데이터 구성
                         row = [data['drwNo'], data['drwNoDate'], data['drwtNo1'], data['drwtNo2'], data['drwtNo3'],
                                data['drwtNo4'], data['drwtNo5'], data['drwtNo6'], data['bnusNo'],
                                data.get('firstPrzwnerCo', 0), data.get('firstAccumamnt', 0), ""]
-
-                        # [시트 동기화 로직 교정]
-                        # 내림차순 정렬 유지를 위해 2행(헤더 아래)에 삽입합니다.
                         ws.insert_row(row, 2)
                         print(f"   ✅ {r}회차 저장 완료.")
-                        time.sleep(2) # 봇 탐지 방지
+                        updated_count += 1
+                        time.sleep(2)
             else:
                 print("   ✅ 이미 최신 상태입니다.")
+
+            # 상태 업데이트
+            self.state_manager.update_phase("last_sync_date")
+            self.log_operation("Phase 1: Sync", "SUCCESS", f"Updated {updated_count} rounds")
+
         except Exception as e:
             print(f"❌ 동기화 중 오류: {e}")
+            self.log_operation("Phase 1: Sync", "FAIL", str(e))
         finally:
             self._optimize_memory()
 
@@ -253,7 +347,6 @@ class LottoOrchestrator:
             soup = BeautifulSoup(res.text, 'html.parser')
             text = soup.get_text()[:5000]
             
-            # Gemini에게 데이터 파싱 요청 (비정형 데이터 처리)
             if self.client:
                 prompt = f"Extract Lotto Round {round_no} data from text as JSON: {text}"
                 try:
@@ -261,7 +354,6 @@ class LottoOrchestrator:
                     return json.loads(resp.text.strip().replace('```json','').replace('```',''))
                 except: pass
 
-            # Fallback (정규식)
             nums = re.findall(r'\b(\d{1,2})\b', text)
             valid = [int(n) for n in nums if 1 <= int(n) <= 45]
             if len(valid) >= 7:
@@ -275,19 +367,16 @@ class LottoOrchestrator:
     # 📥 [Helper] Data Loading
     # -------------------------------------------------------------------------
     def load_data(self):
-        """구글 시트 데이터를 로드하고 학습 가능한 형태로 변환합니다."""
         try:
             sh = self.get_sheet()
             ws = sh.get_worksheet(0)
-            rows = ws.get_all_values()[1:] # 헤더 제외
+            rows = ws.get_all_values()[1:]
             data = []
             for r in rows:
                 try:
                     nums = [int(str(x).replace(',', '')) for x in r[2:8]]
                     data.append(nums)
                 except: pass
-
-            # 시트가 내림차순(최신이 위)이면, 학습을 위해 과거->현재 순으로 뒤집음
             data.reverse()
             return data
         except Exception as e:
@@ -301,36 +390,45 @@ class LottoOrchestrator:
         print("\n🧠 [Phase 2] AI 모델 학습 시작 (M5 Neural Engine)...")
         self._optimize_memory()
 
-        data = self.load_data()
-        if len(data) < 50:
-            print("⚠️ 학습 데이터가 부족합니다 (최소 50회).")
-            return None
+        try:
+            data = self.load_data()
+            if len(data) < 50:
+                print("⚠️ 학습 데이터가 부족합니다.")
+                return None
 
-        # 데이터셋 생성
-        X_seq, X_stat, y = NDA_FeatureEngine.create_multimodal_dataset(data, 10)
+            X_seq, X_stat, y = NDA_FeatureEngine.create_multimodal_dataset(data, 10)
 
-        # 모델 초기화
-        model = CreativeConnectionModel().to(DEVICE)
-        opt = optim.Adam(model.parameters(), lr=0.001)
-        crit = nn.BCELoss()
+            model = CreativeConnectionModel().to(DEVICE)
+            opt = optim.Adam(model.parameters(), lr=0.001)
+            crit = nn.BCELoss()
 
-        # 학습 루프 (100 Epochs)
-        model.train()
-        for e in range(100):
-            opt.zero_grad()
-            loss = crit(model(X_seq, X_stat), y)
-            loss.backward()
-            opt.step()
-            if (e+1) % 20 == 0:
-                print(f"   Epoch {e+1}/100 - Loss: {loss.item():.4f}")
+            model.train()
+            final_loss = 0.0
 
-        # 학습된 가중치 저장 (예측은 하지 않음)
-        torch.save(model.state_dict(), STATE_FILE)
-        print(f"💾 학습 완료. 가중치 파일 저장됨: {STATE_FILE}")
+            for e in range(100):
+                opt.zero_grad()
+                loss = crit(model(X_seq, X_stat), y)
+                loss.backward()
+                opt.step()
+                final_loss = loss.item()
+                if (e+1) % 20 == 0:
+                    print(f"   Epoch {e+1}/100 - Loss: {final_loss:.4f}")
 
-        # 메모리 정리
-        del model, X_seq, X_stat, y
-        self._optimize_memory()
+            torch.save(model.state_dict(), STATE_FILE)
+            print(f"💾 학습 완료. 가중치 파일 저장됨: {STATE_FILE}")
+
+            # 상태 업데이트
+            self.state_manager.update_phase("last_train_date")
+            self.state_manager.update_metric("last_loss", final_loss)
+            self.log_operation("Phase 2: Train", "SUCCESS", f"Loss: {final_loss:.4f}")
+
+            del model, X_seq, X_stat, y
+
+        except Exception as e:
+            print(f"❌ 학습 중 오류: {e}")
+            self.log_operation("Phase 2: Train", "FAIL", str(e))
+        finally:
+            self._optimize_memory()
 
     # -------------------------------------------------------------------------
     # 🔮 [Phase 3] Hybrid Prediction (수요일 02:00)
@@ -339,16 +437,14 @@ class LottoOrchestrator:
         print("\n🔮 [Phase 3] 하이브리드 예측 전략 가동 (Top 20 + LLM)...")
         self._optimize_memory()
 
-        # 0. 준비
-        data = self.load_data()
-        if not data: return
-
-        if not os.path.exists(STATE_FILE):
-            print(f"❌ 가중치 파일({STATE_FILE})이 없습니다. Phase 2(학습)를 먼저 실행하세요.")
-            return
-
         try:
-            # 1. 모델 로드 및 Top 20 번호 추출
+            data = self.load_data()
+            if not data: return
+
+            if not os.path.exists(STATE_FILE):
+                print(f"❌ 가중치 파일({STATE_FILE})이 없습니다.")
+                return
+
             print("1️⃣ [AI 분석] 상위 20개 유력 번호(Top 20) 추출 중...")
             model = CreativeConnectionModel().to(DEVICE)
             model.load_state_dict(torch.load(STATE_FILE, map_location=DEVICE))
@@ -361,12 +457,10 @@ class LottoOrchestrator:
             with torch.no_grad():
                 probs = model(input_seq, input_stat).cpu().numpy()[0]
 
-            # 확률 높은 순 20개 선정
             top_20_indices = probs.argsort()[::-1][:20]
             top_20_nums = [int(n+1) for n in top_20_indices]
             print(f"   🎯 Top 20 후보 번호: {sorted(top_20_nums)}")
 
-            # 2. 1만 개 무작위 조합 생성 (Simulation)
             print("2️⃣ [시뮬레이션] Top 20 기반 10,000개 조합 생성 중...")
             generated_games = []
             all_combinations = list(itertools.combinations(top_20_nums, 6))
@@ -376,29 +470,21 @@ class LottoOrchestrator:
             else:
                 generated_games = all_combinations
 
-            # 메모리 정리
             del all_combinations
             self._optimize_memory()
 
-            # 3. 통계적 필터링 (Statistical Filtering)
             print("3️⃣ [필터링] 통계적 기준(합계, 홀짝)으로 50개 압축 중...")
             filtered_games = []
             for game in generated_games:
-                # 합계 100 ~ 170 (가장 빈번한 구간)
                 total = sum(game)
                 if not (100 <= total <= 170): continue
-
-                # 홀짝 비율 2:4 ~ 4:2 (극단적 비율 제외)
                 odd_count = sum(1 for n in game if n % 2 != 0)
                 if not (2 <= odd_count <= 4): continue
-
                 filtered_games.append(sorted(list(game)))
 
-            # 50개 선정
             final_candidates = random.sample(filtered_games, 50) if len(filtered_games) > 50 else filtered_games
             print(f"   ✅ 필터링 통과: {len(filtered_games)}개 -> 최종 후보 50개 선정.")
 
-            # 4. LLM(Gemini) 최종 선별
             print("4️⃣ [LLM 전략] Gemini에게 최종 5~10개 추천 요청 중...")
             final_selection = self._ask_gemini_to_select(final_candidates)
 
@@ -408,16 +494,17 @@ class LottoOrchestrator:
                 print("   ⚠️ LLM 응답 실패로 랜덤 10개를 저장합니다.")
                 self._write_sheet(final_candidates[:10])
 
+            self.state_manager.update_phase("last_predict_date")
+            self.log_operation("Phase 3: Predict", "SUCCESS", f"Generated {len(final_selection) if final_selection else 10} games")
+
         except Exception as e:
             print(f"❌ 예측 프로세스 중 오류: {e}")
             traceback.print_exc()
-            # 에러 발생 시에도 호출하는 쪽에서 알 수 있도록 예외를 다시 던질 수 있음
-            # 하지만 여기서는 로그만 남기고 안전 종료를 원칙으로 함.
+            self.log_operation("Phase 3: Predict", "FAIL", str(e))
         finally:
             self._optimize_memory()
 
     def _ask_gemini_to_select(self, candidates):
-        """Gemini에게 최고의 조합 선별을 요청"""
         if not self.client: return None
 
         candidates_str = "\n".join([f"{i+1}. {c}" for i, c in enumerate(candidates)])
@@ -444,14 +531,12 @@ class LottoOrchestrator:
             return None
 
     def _write_sheet(self, games):
-        """결과를 구글 시트에 저장"""
         sh = self.get_sheet()
         try: ws = sh.worksheet(REC_SHEET_NAME)
         except: ws = sh.add_worksheet(title=REC_SHEET_NAME, rows=100, cols=20)
 
         ws.clear()
         ws.update(range_name='A1', values=[['🏆 Sniper V5 최종 추천 번호 (Top 20 Hybrid)']])
-        # 시나리오 번호와 함께 저장
         ws.update(range_name='A3', values=[[f"시나리오 {i+1}"] + g for i, g in enumerate(games)])
         print("   ✅ 구글 시트 '추천번호' 탭에 결과가 기록되었습니다.")
 
@@ -464,14 +549,12 @@ class LottoOrchestrator:
             sh = self.get_sheet()
             ws_main = sh.get_worksheet(0)
 
-            # 최신 회차(실제 결과) 가져오기
             latest_row = ws_main.row_values(2)
             real_round = int(latest_row[0].replace('회', ''))
             real_nums = set([int(x) for x in latest_row[2:8]])
             bonus_num = int(latest_row[8])
             print(f"   🎯 실제 결과 ({real_round}회): {sorted(list(real_nums))} + 보너스 {bonus_num}")
 
-            # 내 예측 가져오기
             try: ws_rec = sh.worksheet(REC_SHEET_NAME)
             except:
                 print("   ⚠️ 추천 번호 시트가 없습니다.")
@@ -490,7 +573,6 @@ class LottoOrchestrator:
                 print("   ⚠️ 평가할 예측 데이터가 없습니다.")
                 return
 
-            # 매칭 확인
             total_hits = 0
             max_hit = 0
             results = []
@@ -499,7 +581,6 @@ class LottoOrchestrator:
                 hit_cnt = len(real_nums.intersection(pred))
                 is_bonus = bonus_num in pred
                 rank = "낙첨"
-
                 if hit_cnt == 6: rank = "1등"
                 elif hit_cnt == 5 and is_bonus: rank = "2등"
                 elif hit_cnt == 5: rank = "3등"
@@ -512,31 +593,43 @@ class LottoOrchestrator:
 
             avg_hit = total_hits / len(predictions)
             self._log_reward(real_round, max_hit, avg_hit, results)
+            self.log_operation("Phase 4: Reward", "SUCCESS", f"Max Hit: {max_hit}, Avg: {avg_hit:.2f}")
             print(f"   📊 평가 완료: 최고 {max_hit}개 일치, 평균 {avg_hit:.1f}개")
 
         except Exception as e:
             print(f"❌ 성과 평가 중 오류: {e}")
             traceback.print_exc()
+            self.log_operation("Phase 4: Reward", "FAIL", str(e))
 
     def _log_reward(self, round_no, max_hit, avg_hit, details):
-        """평가 결과를 Log 시트에 기록"""
         try:
             sh = self.get_sheet()
             try: ws_log = sh.worksheet(LOG_SHEET_NAME)
             except:
                 ws_log = sh.add_worksheet(title=LOG_SHEET_NAME, rows=1000, cols=10)
-                ws_log.append_row(["Timestamp", "Round", "Max Hit", "Avg Hit", "Details"])
+                ws_log.append_row(["Timestamp", "Day", "Phase", "Status", "CPU/MEM", "Detail"]) # 헤더 통일
 
-            ws_log.append_row([
+            # Phase 4 결과 상세 기록
+            # (작전로그 탭을 공용으로 사용하되, Reward 상세 정보는 별도 시트나 탭으로 분리하는 것이 좋지만,
+            # 여기서는 '작전로그' 시트의 Detail 컬럼을 활용하거나, 'Log' 시트(기존)를 계속 활용 가능)
+            # 일단 기존 Log 시트가 있다면 거기에 상세 기록
+            try:
+                # 기존 Log 시트 (Phase 4 전용 상세)
+                ws_detail_log = sh.worksheet("Log")
+            except:
+                ws_detail_log = sh.add_worksheet(title="Log", rows=1000, cols=10)
+                ws_detail_log.append_row(["Timestamp", "Round", "Max Hit", "Avg Hit", "Details"])
+
+            ws_detail_log.append_row([
                 datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 round_no,
                 max_hit,
                 f"{avg_hit:.2f}",
                 str(details)
             ])
-            print("   💾 로그 저장 완료.")
+            print("   💾 상세 로그 저장 완료.")
         except Exception as e:
-            print(f"⚠️ 로그 저장 실패: {e}")
+            print(f"⚠️ 상세 로그 저장 실패: {e}")
 
 if __name__ == "__main__":
     # 수동 실행 시 전체 파이프라인 테스트
