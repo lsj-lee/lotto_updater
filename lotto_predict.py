@@ -20,9 +20,19 @@ from sklearn.multioutput import MultiOutputClassifier
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
-import xgboost as xgb
-import catboost as cb
 import requests
+
+try:
+    import xgboost as xgb
+except ImportError:
+    print("⚠️ Missing XGBoost. Run: pip install xgboost")
+    xgb = None
+
+try:
+    import catboost as cb
+except ImportError:
+    print("⚠️ Missing CatBoost. Run: pip install catboost")
+    cb = None
 from bs4 import BeautifulSoup
 import joblib
 import sys
@@ -82,7 +92,7 @@ class HybridSniperOrchestrator:
         """
         [Dynamic Model Discovery]
         Lists available models via API and selects the best one based on priority.
-        Priority: Gemini 2.0 > 1.5 Pro > 1.5 Flash > Pro
+        Priority: Flash > Pro Latest > Pro
         """
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
@@ -90,57 +100,39 @@ class HybridSniperOrchestrator:
             return None, None
 
         client = genai.Client(api_key=api_key)
-        selected_model = None
+        working_model = None
 
-        print("🤖 [Discovery] Searching for available Gemini models via API...")
+        print("🤖 [Gemini Setup] Discovering available models...")
 
-        try:
-            # 1. Fetch all models
-            # google-genai v1.0+ list returns iterator of Model objects
-            all_models = list(client.models.list())
+        # [Optimization] Priority: 2.0 > 1.5 Pro > 1.5 Flash (as requested)
+        candidate_models = [
+            'gemini-2.0-flash-exp',
+            'gemini-1.5-pro',
+            'gemini-1.5-pro-latest',
+            'gemini-1.5-flash',
+            'gemini-1.5-flash-latest',
+            'gemini-pro'
+        ]
 
-            # 2. Filter for 'generateContent' support
-            # Note: Model object attributes might vary by version, checking safely
-            candidates = []
-            for m in all_models:
-                # Check if 'generateContent' is supported
-                # 'supported_generation_methods' usually contains 'generateContent'
-                methods = getattr(m, 'supported_generation_methods', [])
-                if 'generateContent' in methods:
-                    # Strip 'models/' prefix if present for cleaner matching
-                    name = m.name.replace('models/', '') if hasattr(m, 'name') else ''
-                    if 'gemini' in name:
-                        candidates.append(name)
+        for model in candidate_models:
+            try:
+                # Simple ping to check availability
+                response = client.models.generate_content(
+                    model=model,
+                    contents="Ping"
+                )
+                if response.text:
+                    print(f"✅ Connected to Gemini Model: {model}")
+                    working_model = model
+                    break
+            except Exception:
+                continue
 
-            if not candidates:
-                print("⚠️ No models found with generateContent support. Checking hardcoded list...")
-                # Fallback to hardcoded list if API discovery returns weird structures
-                candidates = ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-pro']
+        if not working_model:
+            print("❌ All Gemini models failed. Switching to Manual Input Mode for Strategy.")
+            return client, None
 
-            # 3. Select Best Model based on Priority
-            # Priority Logic: 2.0 > 1.5-pro > 1.5-flash > pro
-            def model_priority(name):
-                if '2.0' in name: return 4
-                if '1.5-pro' in name: return 3
-                if '1.5-flash' in name: return 2
-                if 'pro' in name: return 1
-                return 0
-
-            # Sort descending by priority
-            candidates.sort(key=model_priority, reverse=True)
-
-            if candidates:
-                selected_model = candidates[0]
-                print(f"🤖 [Discovery] 최신 모델 [{selected_model}]을 작전 파트너로 선정했습니다.")
-            else:
-                print("❌ 사령관님, 현재 API 키로 사용 가능한 Gemini 모델이 없습니다. 키의 권한이나 쿼터를 확인해 주세요.")
-                return client, None
-
-            return client, selected_model
-
-        except Exception as e:
-            print(f"⚠️ Model Discovery Failed: {e}. Falling back to default.")
-            return client, 'gemini-1.5-pro' # Ultimate fallback
+        return client, working_model
 
     # --- Execution Modes (Dual-Mode) ---
     def run_full_cycle(self):
@@ -302,7 +294,8 @@ class HybridSniperOrchestrator:
                 elif len(preds.shape) > 1: p = preds[i]
                 else: p = preds
 
-                top_15 = p.argsort()[::-1][:15]
+                # [Fix] Align indices (0-44) to Lotto numbers (1-45)
+                top_15 = p.argsort()[::-1][:15] + 1
                 hits = len(target_set & set(top_15))
                 score += hits
             weights[name] = max(0.1, score)
@@ -337,6 +330,9 @@ class HybridSniperOrchestrator:
             time.sleep(2)
 
     def fetch_lotto_data_via_gemini(self, round_no):
+        """
+        [Library Migration] Uses google-genai to parse lottery data.
+        """
         if not self.client or not self.model_name:
             print("❌ Gemini Client not initialized. Cannot parse.")
             return None
@@ -452,6 +448,9 @@ class LottoDataManager:
             pca.fit(scaled_data)
             variance = pca.explained_variance_ratio_
 
+            print(f"   > [Clustering] Identified Pattern Group: {cluster_id}")
+            print(f"   > [PCA] Explained Variance Ratio: {variance}")
+
             return f"Cluster {cluster_id} | PCA Variance: {variance}"
         except Exception as e:
             return f"Unsupervised Analysis failed: {e}"
@@ -506,20 +505,22 @@ class EnsemblePredictor:
             gc.collect()
 
         # XGBoost (Classification)
-        for d in [3, 5, 7]:
-            xgb_est = xgb.XGBClassifier(n_estimators=50, max_depth=d, n_jobs=1, tree_method='hist')
-            model = MultiOutputClassifier(xgb_est, n_jobs=USED_CORES)
-            model.fit(X, y)
-            self.models.append((f'XGB_d{d}', model))
-            gc.collect()
+        if xgb:
+            for d in [3, 5, 7]:
+                xgb_est = xgb.XGBClassifier(n_estimators=50, max_depth=d, n_jobs=1, tree_method='hist')
+                model = MultiOutputClassifier(xgb_est, n_jobs=USED_CORES)
+                model.fit(X, y)
+                self.models.append((f'XGB_d{d}', model))
+                gc.collect()
 
         # CatBoost (Classification)
-        for d in [4, 6, 8]:
-            cbm = cb.CatBoostClassifier(iterations=50, depth=d, verbose=0, thread_count=1)
-            model = MultiOutputClassifier(cbm, n_jobs=USED_CORES)
-            model.fit(X, y)
-            self.models.append((f'CatBoost_d{d}', model))
-            gc.collect()
+        if cb:
+            for d in [4, 6, 8]:
+                cbm = cb.CatBoostClassifier(iterations=50, depth=d, verbose=0, thread_count=1)
+                model = MultiOutputClassifier(cbm, n_jobs=USED_CORES)
+                model.fit(X, y)
+                self.models.append((f'CatBoost_d{d}', model))
+                gc.collect()
 
         # KNN (Classification)
         for k in [3, 5, 7, 9, 11]:
@@ -548,27 +549,19 @@ class EnsemblePredictor:
         ds = TensorDataset(X_tensor, y_tensor)
         dl = DataLoader(ds, batch_size=32, shuffle=True)
 
-        # LSTM (Recurrent / Encoder-Decoder)
-        for h in [64, 128, 256]:
-            lstm = SimpleLSTM(6, h).to(DEVICE)
-            train_torch_model(lstm, dl)
-            self.models.append((f'LSTM_h{h}', lstm))
-            gc.collect()
-            time.sleep(0.5)
+        # Configs for Visibility
+        configs = [
+            ('LSTM_h64', SimpleLSTM(6, 64)), ('LSTM_h128', SimpleLSTM(6, 128)), ('LSTM_h256', SimpleLSTM(6, 256)),
+            ('GRU_h64', SimpleGRU(6, 64)), ('GRU_h128', SimpleGRU(6, 128)), ('GRU_h256', SimpleGRU(6, 256)),
+            ('CNN_k2', SimpleCNN(2)), ('CNN_k3', SimpleCNN(3)), ('CNN_k4', SimpleCNN(4))
+        ]
 
-        # GRU (Recurrent / Encoder-Decoder)
-        for h in [64, 128, 256]:
-            gru = SimpleGRU(6, h).to(DEVICE)
-            train_torch_model(gru, dl)
-            self.models.append((f'GRU_h{h}', gru))
-            gc.collect()
-            time.sleep(0.5)
-
-        # CNN (Feature Extraction)
-        for k in [2, 3, 4]:
-            cnn = SimpleCNN(k).to(DEVICE)
-            train_torch_model(cnn, dl)
-            self.models.append((f'CNN_k{k}', cnn))
+        total_models = len(configs)
+        for idx, (name, model) in enumerate(configs):
+            print(f"   > Training DL Model [{idx+1}/{total_models}] {name}...")
+            model = model.to(DEVICE)
+            train_torch_model(model, dl)
+            self.models.append((name, model))
             gc.collect()
             time.sleep(0.5)
 
@@ -630,12 +623,17 @@ def train_torch_model(model, loader):
     opt = optim.Adam(model.parameters(), lr=0.001)
     crit = nn.BCELoss()
     model.train()
-    for _ in range(50):
+    epochs = 50
+    for e in range(epochs):
         for x, y in loader:
             opt.zero_grad()
             loss = crit(model(x), y)
             loss.backward()
             opt.step()
+        if (e+1) % 10 == 0:
+            # Simple progress logging
+            # print(f"      - Epoch {e+1}/{epochs}") # Verbose off for speed
+            pass
 
 class GeneticEvolution:
     def __init__(self, probs, population_size=1000, generations=500):

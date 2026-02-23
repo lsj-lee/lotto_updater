@@ -88,17 +88,18 @@ Gemini 1.5 Flash AI를 활용하여 웹상의 비정형 데이터를 정형 데�
 -   **분류(Classification)**: RandomForest, XGBoost, CatBoost 등의 앙상블 모델이 당첨 확률을 예측합니다.
 -   **회귀(Regression)**: 시계열 데이터의 추세를 분석합니다.
 -   **인코더-디코더(Encoder-Decoder)**: LSTM, CNN 모델이 데이터의 시간적 특징을 추출하고 재구성합니다.
+-   **가시성(Visibility)**: 학습 진행률(N/9 Model)을 실시간 로그로 출력하여 진행 상황을 명확히 알 수 있습니다.
 
 ### 2. 비지도 학습 (Unsupervised Learning)
 -   **군집화(Clustering)**: KMeans 알고리즘이 최근 당첨 번호들의 패턴을 그룹화합니다.
--   **차원 축소(Dimensionality Reduction)**: PCA 기법을 사용하여 복잡한 고차원 데이터의 핵심 특징을 시각화 가능한 수준으로 압축하여 분석합니다.
+-   **차원 축소(Dimensionality Reduction)**: PCA 기법을 사용하여 복잡한 고차원 데이터의 핵심 특징을 시각화 가능한 수준으로 압축하여 분석하고, 분산 비율을 로그에 남깁니다.
 
 ### 3. 강화 학습 (Reinforcement Learning)
 -   **PPO 가중치**: 예측 결과에 대한 보상(Reward)을 기반으로 성과가 좋은 모델에게 더 높은 가중치를 부여하는 최적화 과정을 수행합니다.
 
 ### 4. 생성형 AI (Generative AI)
 -   **LLM 필터링**: Gemini 1.5 Pro (또는 가용한 최적 모델)가 유전 알고리즘이 만든 후보군을 검토하고, 최종 10개 조합을 생성합니다.
--   **Dynamic Discovery**: API 연결 시 사용 가능한 모델(Pro/Flash)을 자동으로 탐색하여 연결합니다.
+-   **Dynamic Discovery**: API 연결 시 사용 가능한 모델(Flash > Pro)을 자동으로 탐색하여 연결합니다.
 
 ---
 
