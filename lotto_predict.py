@@ -39,7 +39,7 @@ SPREADSHEET_ID = '1lOifE_xRUocAY_Av-P67uBMKOV1BAb4mMwg_wde_tyA'
 CREDS_FILE = 'creds_lotto.json'
 SHEET_NAME = '로또 max'
 REC_SHEET_NAME = '추천번호'
-LOG_SHEET_NAME = 'Log'  # [Phase 4] 로그 시트 추가
+LOG_SHEET_NAME = 'Log'
 STATE_FILE = 'hybrid_sniper_v5_state.pth'
 
 # M5 하드웨어 안전장치 (6코어 제한)
@@ -58,7 +58,7 @@ REAL_BROWSER_HEADERS = {
 }
 
 # ==========================================
-# 🧠 [Phase 2] The Brain Engine
+# 🧠 [Phase 2] The Brain Engine (Model Architecture)
 # ==========================================
 
 class NDA_FeatureEngine:
@@ -141,7 +141,6 @@ class LottoOrchestrator:
             self.client = None
 
     def _auth(self):
-        # Docs 권한을 깔끔하게 제거하고 스프레드시트와 드라이브 권한만 유지합니다.
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive",
                  "https://www.googleapis.com/auth/spreadsheets"]
         creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_FILE, scope)
@@ -153,13 +152,15 @@ class LottoOrchestrator:
         except:
             return self.gc.open(SHEET_NAME)
 
+    # -------------------------------------------------------------------------
+    # 🔄 [Phase 1] Data Sync (일요일 02:00)
+    # -------------------------------------------------------------------------
     def sync_data(self):
         print("\n🔄 [Phase 1] 지능형 네이버 동기화 시작...")
         try:
             sh = self.get_sheet()
             ws = sh.get_worksheet(0)
             
-            # 내림차순 시트에서도 정확한 마지막 회차 찾기
             col1 = ws.col_values(1)
             rounds = []
             for val in col1:
@@ -178,7 +179,6 @@ class LottoOrchestrator:
                         row = [data['drwNo'], data['drwNoDate'], data['drwtNo1'], data['drwtNo2'], data['drwtNo3'],
                                data['drwtNo4'], data['drwtNo5'], data['drwtNo6'], data['bnusNo'],
                                data.get('firstPrzwnerCo', 0), data.get('firstAccumamnt', 0), ""]
-                        # 내림차순이므로 2행(헤더 바로 아래)에 삽입
                         ws.insert_row(row, 2)
                         print(f"   ✅ {r}회차 저장 완료.")
                         time.sleep(2)
@@ -208,7 +208,6 @@ class LottoOrchestrator:
                     return json.loads(resp.text.strip().replace('```json','').replace('```',''))
                 except: pass
 
-            # Regex Fallback
             nums = re.findall(r'\b(\d{1,2})\b', text)
             valid = [int(n) for n in nums if 1 <= int(n) <= 45]
             if len(valid) >= 7:
@@ -218,47 +217,117 @@ class LottoOrchestrator:
             return None
         except: return None
 
+    # -------------------------------------------------------------------------
+    # 📥 [Helper] Data Loading
+    # -------------------------------------------------------------------------
+    def load_data(self):
+        """구글 시트에서 전체 데이터를 로드하고 시간 순서(과거->현재)로 정렬하여 반환"""
+        try:
+            sh = self.get_sheet()
+            ws = sh.get_worksheet(0)
+            rows = ws.get_all_values()[1:] # 헤더 제외
+            data = []
+            for r in rows:
+                try:
+                    nums = [int(str(x).replace(',', '')) for x in r[2:8]]
+                    data.append(nums)
+                except: pass
+
+            # 시트가 최신순(내림차순)이면, 학습을 위해 과거->현재로 뒤집음
+            data.reverse()
+            return data
+        except Exception as e:
+            print(f"❌ 데이터 로드 실패: {e}")
+            return []
+
+    # -------------------------------------------------------------------------
+    # 🧠 [Phase 2] Model Training (월요일 02:00)
+    # -------------------------------------------------------------------------
     def train_brain(self):
         print("\n🧠 [Phase 2] 하이브리드 신경망 학습 (M5 가속)...")
-        sh = self.get_sheet()
-        ws = sh.get_worksheet(0)
-        rows = ws.get_all_values()[1:]
-        data = []
-        for r in rows:
-            try:
-                nums = [int(str(x).replace(',', '')) for x in r[2:8]]
-                data.append(nums)
-            except: pass
+        data = self.load_data()
 
-        # 데이터 순서를 과거->현재로 정렬 (내림차순 시트일 경우)
-        # 로또 데이터가 최신이 상단(인덱스 작음)에 있다면 뒤집어야 함.
-        # 시트의 1행이 헤더, 2행이 최신이라고 가정하면 rows[0]이 최신.
-        # 학습을 위해 시간 순서대로 정렬 (과거 -> 최신)
-        data.reverse()
+        if len(data) < 50:
+            print("⚠️ 학습 데이터가 부족합니다 (최소 50회차).")
+            return None
 
-        if len(data) < 50: return None, None
-
+        # 데이터셋 생성
         X_seq, X_stat, y = NDA_FeatureEngine.create_multimodal_dataset(data, 10)
+
+        # 모델 초기화
         model = CreativeConnectionModel().to(DEVICE)
         opt = optim.Adam(model.parameters(), lr=0.001)
         crit = nn.BCELoss()
+
+        # 학습 루프
         model.train()
-        for e in range(100):
+        for e in range(100): # 100 Epochs
             opt.zero_grad()
             loss = crit(model(X_seq, X_stat), y)
             loss.backward()
             opt.step()
+            if (e+1) % 20 == 0:
+                print(f"   Epoch {e+1}/100 - Loss: {loss.item():.4f}")
+
+        # 모델 저장 (가중치 파일 생성)
         torch.save(model.state_dict(), STATE_FILE)
-        return model, data
+        print(f"💾 모델 학습 완료 및 저장됨: {STATE_FILE}")
+        return model # 학습된 모델 반환 (즉시 사용 시)
+
+    # -------------------------------------------------------------------------
+    # 🔮 [Phase 3] Prediction Only (수요일 02:00)
+    # -------------------------------------------------------------------------
+    def load_and_predict(self):
+        """
+        [분리된 예측 기능]
+        학습 없이 저장된 가중치(pth)를 불러와 예측만 수행합니다.
+        """
+        print("\n🔮 [Phase 3] 저장된 두뇌를 깨워 예측을 시작합니다...")
+
+        # 1. 데이터 로드 (최신 데이터를 입력값으로 사용)
+        data = self.load_data()
+        if not data:
+            print("❌ 예측할 데이터가 없습니다.")
+            return
+
+        # 2. 가중치 파일 존재 여부 확인
+        if not os.path.exists(STATE_FILE):
+            print(f"❌ 학습된 모델 파일({STATE_FILE})이 없습니다. Phase 2(학습)를 먼저 실행하세요.")
+            return
+
+        # 3. 모델 구조 생성 및 가중치 로드
+        try:
+            model = CreativeConnectionModel().to(DEVICE)
+            # map_location을 사용하여 저장된 장치와 무관하게 로드 (안전성 확보)
+            model.load_state_dict(torch.load(STATE_FILE, map_location=DEVICE))
+            model.eval() # 평가 모드 전환
+            print("   ✅ 모델 로드 성공.")
+        except Exception as e:
+            print(f"❌ 모델 로드 중 오류 발생: {e}")
+            return
+
+        # 4. 예측 수행 및 보고서 생성
+        self.generate_report(model, data)
 
     def generate_report(self, model, data):
-        print("\n📝 [Phase 3] 전략 보고서 생성 (구글 시트 전용)...")
-        model.eval()
-        input_seq = torch.tensor(np.array(data[-10:]) / 45.0, dtype=torch.float32).unsqueeze(0).to(DEVICE)
+        print("📝 전략 보고서 작성 중...")
+        # 최근 10회차 데이터를 입력 시퀀스로 사용
+        last_seq = data[-10:]
+        if len(last_seq) < 10:
+            print("⚠️ 예측을 위한 최근 데이터가 부족합니다.")
+            return
+
+        input_seq = torch.tensor(np.array(last_seq) / 45.0, dtype=torch.float32).unsqueeze(0).to(DEVICE)
+        # 마지막 회차의 통계적 특징 추출
         input_stat = torch.tensor(NDA_FeatureEngine.calculate_derived_features([data[-1]]), dtype=torch.float32).to(DEVICE)
+
         with torch.no_grad():
             probs = model(input_seq, input_stat).cpu().numpy()[0]
+
+        # 확률 상위 15개 번호 추출 (후보군)
         top_nums = [int(n+1) for n in probs.argsort()[::-1][:15]]
+
+        # 10개 게임 생성 (랜덤 조합)
         games = [sorted(random.sample(top_nums, 6)) for _ in range(10)]
         self._write_sheet(games)
 
@@ -272,30 +341,25 @@ class LottoOrchestrator:
         print("   ✅ 구글 시트 '추천번호' 탭에 작전 결과가 하달되었습니다.")
 
     # -------------------------------------------------------------------------
-    # 🏅 [Phase 4] PPO 기반 보상 체계 (Reward System)
+    # 🏅 [Phase 4] Reward System (목요일 02:00)
     # -------------------------------------------------------------------------
     def evaluate_performance(self):
         print("\n🏅 [Phase 4] 지난 작전 성과 평가 (Reward Check)...")
         try:
             sh = self.get_sheet()
-
-            # 1. 실제 당첨 번호 (최신 회차) 가져오기
             ws_main = sh.get_worksheet(0)
-            latest_row = ws_main.row_values(2) # 헤더 다음 행
+            latest_row = ws_main.row_values(2)
             real_round = int(latest_row[0].replace('회', ''))
             real_nums = set([int(x) for x in latest_row[2:8]])
             bonus_num = int(latest_row[8])
             print(f"   🎯 실제 결과 ({real_round}회): {sorted(list(real_nums))} + {bonus_num}")
 
-            # 2. 추천 번호 가져오기
-            try:
-                ws_rec = sh.worksheet(REC_SHEET_NAME)
+            try: ws_rec = sh.worksheet(REC_SHEET_NAME)
             except:
                 print("   ⚠️ 추천 번호 시트가 없습니다. 평가 건너뜀.")
                 return
 
             rec_rows = ws_rec.get_all_values()
-            # 시나리오 행 찾기 (A3부터 시작한다고 가정)
             predictions = []
             for r in rec_rows:
                 if r and "시나리오" in r[0]:
@@ -308,7 +372,6 @@ class LottoOrchestrator:
                 print("   ⚠️ 평가할 추천 번호가 없습니다.")
                 return
 
-            # 3. 매칭 및 보상 계산
             total_hits = 0
             max_hit = 0
             results = []
@@ -326,13 +389,10 @@ class LottoOrchestrator:
 
                 total_hits += hit_cnt
                 if hit_cnt > max_hit: max_hit = hit_cnt
-
                 results.append(f"시나리오 {idx+1}: {hit_cnt}개 일치 ({rank})")
 
-            # 4. 로그 기록
             avg_hit = total_hits / len(predictions)
             self._log_reward(real_round, max_hit, avg_hit, results)
-
             print(f"   📊 평가 완료: 최고 {max_hit}개 일치, 평균 {avg_hit:.1f}개")
 
         except Exception as e:
@@ -340,16 +400,13 @@ class LottoOrchestrator:
             traceback.print_exc()
 
     def _log_reward(self, round_no, max_hit, avg_hit, details):
-        """평가 결과를 Log 시트에 기록"""
         try:
             sh = self.get_sheet()
-            try:
-                ws_log = sh.worksheet(LOG_SHEET_NAME)
+            try: ws_log = sh.worksheet(LOG_SHEET_NAME)
             except:
                 ws_log = sh.add_worksheet(title=LOG_SHEET_NAME, rows=1000, cols=10)
                 ws_log.append_row(["Timestamp", "Round", "Max Hit", "Avg Hit", "Details"])
 
-            # 로그 쌓기 (최신이 아래로)
             ws_log.append_row([
                 datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 round_no,
@@ -363,10 +420,9 @@ class LottoOrchestrator:
 
 if __name__ == "__main__":
     app = LottoOrchestrator()
-    print("🚀 Manual Mode: Executing Full Strategy...")
-    app.sync_data()
-    model, data = app.train_brain()
-    if model and data: app.generate_report(model, data)
-    # 수동 모드에서도 평가 실행 가능 (옵션)
-    # app.evaluate_performance()
+    print("🚀 Manual Mode: Executing Full Strategy (Sequential)...")
+    app.sync_data()       # Phase 1
+    app.train_brain()     # Phase 2
+    app.load_and_predict()# Phase 3
+    # app.evaluate_performance() # Phase 4 (Optional)
     print("\n✅ 작전 완료 (Mission Accomplished).")

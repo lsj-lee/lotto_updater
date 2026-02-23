@@ -6,6 +6,7 @@ import sys
 import os
 import torch
 import gc
+import pytz
 from datetime import datetime
 
 # 로깅 설정
@@ -70,97 +71,107 @@ class LottoScheduler:
             logging.info(f"✅ [작업 완료] {task_name}")
         except Exception as e:
             logging.error(f"❌ [작업 실패] {task_name}: {str(e)}")
-            # 치명적 오류 발생 시 관리자 알림 로직 추가 가능
 
     # --- 개별 작업 정의 ---
 
     def job_sync(self):
-        """데이터 동기화 (토요일 밤)"""
+        """Phase 1: 데이터 동기화"""
         self.run_safe("Data Synchronization", self.orchestrator.sync_data)
 
     def job_train(self):
-        """모델 학습 (월요일 밤)"""
-        # train_brain은 모델과 데이터를 반환하므로 래퍼 필요
-        def _train():
-            model, data = self.orchestrator.train_brain()
-            if model:
-                logging.info("🧠 모델 학습 완료 및 저장됨.")
-            else:
-                logging.warning("⚠️ 학습 데이터 부족으로 모델 학습 건너뜀.")
-        self.run_safe("Model Training", _train)
+        """Phase 2: 모델 학습 (데이터 로드 -> 학습 -> 가중치 저장)"""
+        # train_brain()은 모델을 반환하지만 스케줄러에서는 저장만 하면 되므로 반환값 무시
+        self.run_safe("Model Training (Phase 2)", self.orchestrator.train_brain)
 
     def job_predict(self):
-        """번호 예측 및 보고서 생성 (수요일 저녁)"""
-        def _predict():
-            # 예측을 위해 데이터를 다시 로드하거나 상태를 확인
-            # lotto_predict.py의 구조상 train_brain이 데이터를 리턴하지만,
-            # 여기서는 예측만 수행하려면 데이터를 다시 로드해야 함.
-            # orchestrator에 데이터 로드 기능이 통합되어 있다고 가정하거나 추가 구현 필요.
-            # 현재 lotto_predict.py의 train_brain에서 데이터를 로드함.
-            # 효율성을 위해 predict_only 모드를 lotto_predict.py에 추가하는 것이 좋음.
-            # 임시로 train_brain을 호출하여 데이터를 얻거나, 별도 로드 함수 사용.
-
-            # (수정 예정인 lotto_predict.py에 load_data 메소드 추가 필요)
-            # 여기서는 편의상 train_brain을 호출하여 최신 모델로 예측 (또는 저장된 모델 로드)
-            logging.info("🔮 예측 시나리오 생성 중...")
-            model, data = self.orchestrator.train_brain() # 재학습 또는 로드
-            if model and data:
-                self.orchestrator.generate_report(model, data)
-
-        self.run_safe("Prediction & Reporting", _predict)
+        """Phase 3: 번호 예측 (학습 없이 가중치 로드 -> 예측 -> 시트 저장)"""
+        if hasattr(self.orchestrator, 'load_and_predict'):
+            self.run_safe("Prediction Only (Phase 3)", self.orchestrator.load_and_predict)
+        else:
+            logging.error("❌ 'load_and_predict' 메소드가 없습니다. lotto_predict.py를 확인하세요.")
 
     def job_evaluate(self):
-        """성과 평가 (목요일 아침) - Reward System"""
-        if hasattr(self.orchestrator, 'evaluate_performance'):
-            self.run_safe("Performance Evaluation", self.orchestrator.evaluate_performance)
-        else:
-            logging.warning("⚠️ 'evaluate_performance' 메소드가 구현되지 않았습니다.")
+        """Phase 4: 성과 평가 (Reward System)"""
+        self.run_safe("Performance Evaluation (Reward)", self.orchestrator.evaluate_performance)
 
     def job_evolution(self):
-        """자율 진화 제안 (금요일 저녁) - Self-Evolution"""
+        """Phase 4+: 자율 진화 제안"""
         if self.evolution_manager:
             logging.info("🧬 [Self-Evolution] 코드 분석 및 진화 제안 시작...")
-            # 터미널 상호작용을 위해 메인 스레드에서 실행
-            # 백그라운드 실행 중이라면 로그만 남기고, 사용자가 직접 실행하도록 유도
+            # 터미널 상호작용이 필요하므로, 실제 자동화 시에는 로그만 남기거나
+            # 별도의 알림을 보내는 방식으로 처리하는 것이 좋습니다.
             if sys.stdin.isatty():
                 self.evolution_manager.execute_evolution_cycle('lotto_predict.py')
             else:
-                logging.info("ℹ️ 백그라운드 실행 중입니다. 진화 제안은 'python evolution_manager.py'를 수동 실행하세요.")
+                logging.info("ℹ️ 백그라운드 실행 중입니다. 진화 제안은 수동으로 실행하세요.")
         else:
             logging.warning("⚠️ Evolution Manager가 로드되지 않았습니다.")
 
 # -----------------------------------------------------------------------------
-# 🕒 스케줄 설정
+# 🕒 KST (한국 시간) 기반 스케줄링 로직
 # -----------------------------------------------------------------------------
-def start_scheduler():
+def run_kst_schedule():
     bot = LottoScheduler()
 
-    # 1. 데이터 동기화 (매주 토요일 21:00) - 추첨 직후
-    schedule.every().saturday.at("21:00").do(bot.job_sync)
+    # 작업 실행 상태를 추적하여 1분 동안 중복 실행 방지
+    last_run_minute = -1
 
-    # 2. 모델 학습 (매주 월요일 21:00) - 데이터 분석 및 학습
-    schedule.every().monday.at("21:00").do(bot.job_train)
+    print("🚀 [Scheduler] Hybrid Sniper V5 KST(한국 시간) 스케줄러 시작...")
+    print("   - 일요일 02:00 : Phase 1 (데이터 동기화)")
+    print("   - 월요일 02:00 : Phase 2 (모델 학습)")
+    print("   - 수요일 02:00 : Phase 3 (번호 예측)")
+    print("   - 목요일 02:00 : Phase 4 (성과 평가)")
+    print("   - 금요일 02:00 : Phase 4+ (자율 진화)")
 
-    # 3. 예측 보고서 (매주 수요일 18:00) - 목요일 구매 전
-    schedule.every().wednesday.at("18:00").do(bot.job_predict)
-
-    # 4. 성과 평가 (매주 목요일 09:00) - 지난주 결과 복기
-    schedule.every().thursday.at("09:00").do(bot.job_evaluate)
-
-    # 5. 자율 진화 (매주 금요일 20:00) - 주말 전 시스템 점검 및 업데이트
-    schedule.every().friday.at("20:00").do(bot.job_evolution)
-
-    logging.info("🚀 [Scheduler] Hybrid Sniper V5 자동화 시스템이 시작되었습니다.")
-    logging.info("   - 토 21:00: 데이터 동기화")
-    logging.info("   - 월 21:00: 모델 학습")
-    logging.info("   - 수 18:00: 번호 예측")
-    logging.info("   - 목 09:00: 성과 평가")
-    logging.info("   - 금 20:00: 자율 진화 제안")
-    logging.info("   (Ctrl+C로 종료)")
+    kst = pytz.timezone('Asia/Seoul')
 
     while True:
-        schedule.run_pending()
-        time.sleep(60) # 1분마다 체크
+        # 현재 한국 시간 확인
+        now = datetime.now(kst)
+        current_day_str = now.strftime("%A") # Sunday, Monday...
+        current_hour = now.hour
+        current_minute = now.minute
+
+        # 디버깅용 로그 (1시간마다 한 번씩만 출력하거나 필요 시 주석 해제)
+        # if current_minute == 0 and current_minute != last_run_minute:
+        #     print(f"🕒 [Tick] 현재 한국 시간: {now.strftime('%Y-%m-%d %H:%M:%S')} ({current_day_str})")
+
+        # 1분 단위 체크 (중복 실행 방지)
+        if current_minute != last_run_minute:
+
+            # 1. 일요일 02:00 -> Phase 1 (Sync)
+            if current_day_str == "Sunday" and current_hour == 2 and current_minute == 0:
+                logging.info(f"🕒 [Schedule] {current_day_str} 02:00 - 데이터 동기화 시작")
+                bot.job_sync()
+
+            # 2. 월요일 02:00 -> Phase 2 (Train)
+            elif current_day_str == "Monday" and current_hour == 2 and current_minute == 0:
+                logging.info(f"🕒 [Schedule] {current_day_str} 02:00 - 모델 학습 시작")
+                bot.job_train()
+
+            # 3. 수요일 02:00 -> Phase 3 (Predict)
+            elif current_day_str == "Wednesday" and current_hour == 2 and current_minute == 0:
+                logging.info(f"🕒 [Schedule] {current_day_str} 02:00 - 번호 예측 시작")
+                bot.job_predict()
+
+            # 4. 목요일 02:00 -> Phase 4 (Evaluate)
+            elif current_day_str == "Thursday" and current_hour == 2 and current_minute == 0:
+                logging.info(f"🕒 [Schedule] {current_day_str} 02:00 - 성과 평가 시작")
+                bot.job_evaluate()
+
+            # 5. 금요일 02:00 -> Phase 4+ (Evolution)
+            elif current_day_str == "Friday" and current_hour == 2 and current_minute == 0:
+                logging.info(f"🕒 [Schedule] {current_day_str} 02:00 - 자율 진화 제안 시작")
+                bot.job_evolution()
+
+            # 실행 완료 후 현재 분 기록
+            last_run_minute = current_minute
+
+        # CPU 점유율을 낮추기 위해 10초 대기
+        time.sleep(10)
 
 if __name__ == "__main__":
-    start_scheduler()
+    try:
+        run_kst_schedule()
+    except KeyboardInterrupt:
+        print("\n🛑 스케줄러가 사용자에 의해 중단되었습니다.")
