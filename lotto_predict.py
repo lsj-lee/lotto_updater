@@ -80,8 +80,9 @@ class HybridSniperOrchestrator:
 
     def _setup_gemini(self):
         """
-        [Dynamic Model Discovery] Automatically find available Gemini models.
-        Includes robust fallback list to fix 404 errors.
+        [Dynamic Model Discovery]
+        Lists available models via API and selects the best one based on priority.
+        Priority: Gemini 2.0 > 1.5 Pro > 1.5 Flash > Pro
         """
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
@@ -89,40 +90,57 @@ class HybridSniperOrchestrator:
             return None, None
 
         client = genai.Client(api_key=api_key)
-        working_model = None
+        selected_model = None
 
-        print("🤖 [Gemini Setup] Discovering available models...")
+        print("🤖 [Discovery] Searching for available Gemini models via API...")
 
-        # Extended Fallback List (Prioritize Pro > Flash)
-        candidate_models = [
-            'gemini-1.5-pro',
-            'gemini-1.5-flash',
-            'gemini-2.0-flash-exp',
-            'gemini-1.5-pro-latest',
-            'gemini-1.5-flash-latest',
-            'gemini-pro',
-            'gemini-1.0-pro'
-        ]
+        try:
+            # 1. Fetch all models
+            # google-genai v1.0+ list returns iterator of Model objects
+            all_models = list(client.models.list())
 
-        for model in candidate_models:
-            try:
-                # Simple ping to check availability
-                response = client.models.generate_content(
-                    model=model,
-                    contents="Ping"
-                )
-                if response.text:
-                    print(f"✅ Connected to Gemini Model: {model}")
-                    working_model = model
-                    break
-            except Exception:
-                continue
+            # 2. Filter for 'generateContent' support
+            # Note: Model object attributes might vary by version, checking safely
+            candidates = []
+            for m in all_models:
+                # Check if 'generateContent' is supported
+                # 'supported_generation_methods' usually contains 'generateContent'
+                methods = getattr(m, 'supported_generation_methods', [])
+                if 'generateContent' in methods:
+                    # Strip 'models/' prefix if present for cleaner matching
+                    name = m.name.replace('models/', '') if hasattr(m, 'name') else ''
+                    if 'gemini' in name:
+                        candidates.append(name)
 
-        if not working_model:
-            print("❌ All Gemini models failed. Switching to Manual Input Mode for Strategy.")
-            return client, None
+            if not candidates:
+                print("⚠️ No models found with generateContent support. Checking hardcoded list...")
+                # Fallback to hardcoded list if API discovery returns weird structures
+                candidates = ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-pro']
 
-        return client, working_model
+            # 3. Select Best Model based on Priority
+            # Priority Logic: 2.0 > 1.5-pro > 1.5-flash > pro
+            def model_priority(name):
+                if '2.0' in name: return 4
+                if '1.5-pro' in name: return 3
+                if '1.5-flash' in name: return 2
+                if 'pro' in name: return 1
+                return 0
+
+            # Sort descending by priority
+            candidates.sort(key=model_priority, reverse=True)
+
+            if candidates:
+                selected_model = candidates[0]
+                print(f"🤖 [Discovery] 최신 모델 [{selected_model}]을 작전 파트너로 선정했습니다.")
+            else:
+                print("❌ 사령관님, 현재 API 키로 사용 가능한 Gemini 모델이 없습니다. 키의 권한이나 쿼터를 확인해 주세요.")
+                return client, None
+
+            return client, selected_model
+
+        except Exception as e:
+            print(f"⚠️ Model Discovery Failed: {e}. Falling back to default.")
+            return client, 'gemini-1.5-pro' # Ultimate fallback
 
     # --- Execution Modes (Dual-Mode) ---
     def run_full_cycle(self):
@@ -319,9 +337,6 @@ class HybridSniperOrchestrator:
             time.sleep(2)
 
     def fetch_lotto_data_via_gemini(self, round_no):
-        """
-        [Library Migration] Uses google-genai to parse lottery data.
-        """
         if not self.client or not self.model_name:
             print("❌ Gemini Client not initialized. Cannot parse.")
             return None
@@ -347,16 +362,43 @@ class HybridSniperOrchestrator:
             return None
 
     def update_report(self, games):
+        """
+        [Report Neutralization] Uses neutral terms like 'Scenario' and 'Target Candidate'.
+        Groups results into Primary and Secondary categories.
+        """
         try:
             ws = self.gc.open(self.sheet_name).worksheet(REC_SHEET_NAME)
             ws.clear()
             model_display = self.model_name if self.model_name else "Fallback Strategy"
-            ws.update(range_name='A1', values=[['🏆 Hybrid Sniper V5: AI Taxonomy Orchestration']])
-            ws.update(range_name='A3', values=[[f'🔥 {model_display} Selected Top 10']])
-            rows = [[f"Rank {i+1}"] + g for i, g in enumerate(games)]
-            ws.update(range_name='A5', values=rows)
-            ws.update(range_name='A18', values=[['🚀 AI Future Technology Lab (R&D Insight)']])
-            ws.update(range_name='A19', values=[
+
+            # [Report] Disclaimer and Neutral Title
+            ws.update(range_name='A1', values=[['⚠️ 본 리포트는 AI의 적합도 기반 분석 결과이며, 절대적인 당첨 순위를 의미하지 않습니다.']])
+            ws.format("A1", {"textFormat": {"foregroundColor": {"red": 1.0, "green": 0.0, "blue": 0.0}, "bold": True}})
+
+            ws.update(range_name='A3', values=[['🏆 Hybrid Sniper V5: AI Suitability Scenarios']])
+            ws.update(range_name='A5', values=[[f'🔥 Strategy: {model_display} Selected Candidates']])
+
+            # [Report] Grouping
+            report_rows = []
+
+            # Primary Group
+            report_rows.append(["[Primary Group] High Probability Candidates"])
+            for i in range(5):
+                if i < len(games):
+                    report_rows.append([f"Scenario {i+1}"] + games[i])
+
+            # Secondary Group
+            report_rows.append([]) # Empty row
+            report_rows.append(["[Secondary Group] Strategic Alternatives"])
+            for i in range(5, 10):
+                if i < len(games):
+                    report_rows.append([f"Scenario {i+1}"] + games[i])
+
+            ws.update(range_name='A7', values=report_rows)
+
+            # Insight Section
+            ws.update(range_name='A25', values=[['🚀 AI Future Technology Lab (R&D Insight)']])
+            ws.update(range_name='A26', values=[
                 ["Analysis", "Supervised (Classification/Regression) + Unsupervised (PCA)"],
                 ["Optimization", "Reinforcement (PPO) + Evolutionary (GA)"],
                 ["Filter", f"Generative AI ({model_display})"],
