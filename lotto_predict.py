@@ -140,38 +140,50 @@ class CreativeConnectionModel(nn.Module):
 # 🛰️ [System] Orchestrator (Main Logic)
 # ==========================================
 
-def get_verified_model(api_key):
-    """Gemini 모델 상태를 점검하고 가장 빠른 모델을 선택합니다."""
-    print("🛰️ [Scout] Gemini 모델 가용성 확인 중...")
-    if not api_key: return "gemini-1.5-flash"
-    candidates = ["gemini-2.0-flash-exp", "gemini-1.5-flash"]
-    for model in candidates:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-        try:
-            payload = {"contents": [{"parts": [{"text": "Ping"}]}]}
-            resp = requests.post(url, json=payload, timeout=3)
-            if resp.status_code == 200:
-                print(f"   ✅ 활성화됨: {model}")
-                return model
-        except: continue
-    return "gemini-1.5-flash"
-
 class LottoOrchestrator:
     def __init__(self):
         self.gc = self._auth()
         api_key = os.getenv("GEMINI_API_KEY")
-        self.model_name = get_verified_model(api_key)
-        try:
-            self.client = genai.Client(api_key=api_key)
-        except:
-            self.client = None
+        self.client = self._init_gemini(api_key)
+
+        # [모델 설정] gemini-2.0-flash-exp (또는 2.5-flash) 사용
+        # 탐색 로직을 제거하고 지정된 모델을 사용합니다.
+        self.model_name = "gemini-2.0-flash-exp"
+        print(f"🛰️ [System] 지휘관 모델 설정: {self.model_name}")
 
     def _auth(self):
-        """구글 시트 API 인증 (creds_lotto.json 필요)"""
+        """
+        [하이브리드 인증 로직]
+        1. 로컬 환경: creds_lotto.json 파일 사용
+        2. GitHub Actions: GOOGLE_CREDS_JSON 환경 변수 사용
+        """
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive",
                  "https://www.googleapis.com/auth/spreadsheets"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_FILE, scope)
-        return gspread.authorize(creds)
+
+        try:
+            if os.path.exists(CREDS_FILE):
+                print("🔑 [Auth] 로컬 인증 파일(creds_lotto.json)을 사용합니다.")
+                creds = ServiceAccountCredentials.from_json_keyfile_name(CREDS_FILE, scope)
+            elif os.getenv("GOOGLE_CREDS_JSON"):
+                print("🔑 [Auth] GitHub Secrets (GOOGLE_CREDS_JSON)를 사용합니다.")
+                creds_dict = json.loads(os.getenv("GOOGLE_CREDS_JSON"))
+                creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            else:
+                raise FileNotFoundError("❌ 인증 파일을 찾을 수 없습니다. (local or env)")
+
+            return gspread.authorize(creds)
+        except Exception as e:
+            print(f"❌ 인증 실패: {e}")
+            sys.exit(1)
+
+    def _init_gemini(self, api_key):
+        if not api_key:
+            print("⚠️ GEMINI_API_KEY가 없습니다. AI 기능이 제한됩니다.")
+            return None
+        try:
+            return genai.Client(api_key=api_key)
+        except:
+            return None
 
     def get_sheet(self):
         try: return self.gc.open_by_key(SPREADSHEET_ID)
@@ -194,7 +206,7 @@ class LottoOrchestrator:
             sh = self.get_sheet()
             ws = sh.get_worksheet(0)
             
-            # 현재 시트에 저장된 마지막 회차 확인
+            # 현재 시트에 저장된 마지막 회차 확인 (1열: 회차)
             col1 = ws.col_values(1)
             rounds = []
             for val in col1:
@@ -206,20 +218,27 @@ class LottoOrchestrator:
             print(f"   📊 상태: 내 파일({local_last}회) vs 네이버({portal_last}회)")
 
             if portal_last > local_last:
+                # 누락된 회차 순차 수집
                 for r in range(local_last + 1, portal_last + 1):
                     print(f"   🔍 {r}회차 데이터 수집 중...")
                     data = self._scrape_round_detail(r)
                     if data:
+                        # 시트 형식에 맞게 데이터 구성
                         row = [data['drwNo'], data['drwNoDate'], data['drwtNo1'], data['drwtNo2'], data['drwtNo3'],
                                data['drwtNo4'], data['drwtNo5'], data['drwtNo6'], data['bnusNo'],
                                data.get('firstPrzwnerCo', 0), data.get('firstAccumamnt', 0), ""]
-                        ws.insert_row(row, 2) # 최신 회차를 위쪽에 삽입
+
+                        # [시트 동기화 로직 교정]
+                        # 내림차순 정렬 유지를 위해 2행(헤더 아래)에 삽입합니다.
+                        ws.insert_row(row, 2)
                         print(f"   ✅ {r}회차 저장 완료.")
                         time.sleep(2) # 봇 탐지 방지
             else:
                 print("   ✅ 이미 최신 상태입니다.")
         except Exception as e:
             print(f"❌ 동기화 중 오류: {e}")
+        finally:
+            self._optimize_memory()
 
     def _get_naver_latest_round(self):
         try:
