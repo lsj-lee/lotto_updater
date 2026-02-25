@@ -500,20 +500,26 @@ class LottoOrchestrator:
             print(f"   ✅ 후보 압축: {len(candidates)}개")
 
             # 4. LLM Selection (Dynamic Prompt)
-            final_games, reasoning = self._ask_gemini(candidates)
+            # JSON: {combinations, total_count, tactical_reasoning}
+            final_games, total_count, reasoning = self._ask_gemini(candidates)
 
             # 5. 결과 기록
-            self._write_sheet(final_games if final_games else candidates[:10])
+            final = final_games if final_games else candidates[:10]
+            if not total_count:
+                total_count = f"총 {len(final)}게임 추출 완료"
+            if not reasoning:
+                reasoning = "Gemini 응답 실패. 기본 확률 분석 모델에 의한 자동 생성."
+
+            self._write_sheet(final, total_count, reasoning)
 
             # [추가 기능] 히스토리 저장 및 리포트 작성
             target_round = self._get_naver_latest_round() + 1
             if final_games:
                 self.save_prediction_history(target_round, final_games)
-                if reasoning:
-                    self.log_daily_report("AI_INSIGHT", reasoning)
+                self.log_daily_report("AI_INSIGHT", reasoning)
 
             self.state_manager.update_phase("last_predict_date")
-            self.log_operation("Phase 3", "SUCCESS", f"Generated {len(final_games) if final_games else 10}")
+            self.log_operation("Phase 3", "SUCCESS", f"Generated {len(final)}")
 
         except Exception as e:
             print(f"❌ 예측 실패: {e}")
@@ -523,7 +529,7 @@ class LottoOrchestrator:
             self.cleanup_memory()
 
     def _ask_gemini(self, candidates):
-        if not self.client: return None, None
+        if not self.client: return None, None, None
 
         # [동적 프롬프트 로드]
         state_prompt = self.state_manager.state.get("active_strategy_prompt", {})
@@ -533,6 +539,7 @@ class LottoOrchestrator:
         print(f"   🧬 적용된 전략: {version}")
 
         c_str = "\n".join([f"{i+1}. {c}" for i, c in enumerate(candidates)])
+
         # [프롬프트 개선] JSON 객체 포맷 요청
         full_prompt = f"""
         {prompt_content}
@@ -544,7 +551,8 @@ class LottoOrchestrator:
         반드시 아래 JSON 포맷을 준수하세요:
         {{
             "combinations": [[1,2,3,4,5,6], [7,8,9,10,11,12], ...],
-            "reasoning": "이 조합들을 선택한 전략적 이유와 분석 내용을 한글로 상세히 서술하세요."
+            "total_count": "총 X게임 추출 완료",
+            "tactical_reasoning": "딥러닝 가중치 및 최근 미출현 흐름 분석 결과... (3~4줄 요약)"
         }}
         """
 
@@ -556,23 +564,46 @@ class LottoOrchestrator:
             if txt.endswith("```"): txt = txt[:-3]
 
             parsed = json.loads(txt.strip())
-            if isinstance(parsed, list):
-                return parsed, ""
-            return parsed.get("combinations", []), parsed.get("reasoning", "")
-        except:
-            return None, None
 
-    def _write_sheet(self, games):
+            # List fallback
+            if isinstance(parsed, list):
+                return parsed, f"총 {len(parsed)}게임 추출 완료", "리스트 형태로 반환됨."
+
+            return (
+                parsed.get("combinations", []),
+                parsed.get("total_count", "정보 없음"),
+                parsed.get("tactical_reasoning", "")
+            )
+        except:
+            return None, None, None
+
+    def _write_sheet(self, games, total_count, reasoning):
         try:
             sh = self.get_sheet()
             try: ws = sh.worksheet(REC_SHEET_NAME)
             except: ws = sh.add_worksheet(REC_SHEET_NAME, 100, 20)
             ws.clear()
+
+            # Header
             ws.update(range_name='A1', values=[['🏆 Sniper V5 추천 번호']])
-            # 타임스탬프 정보 추가
             ws.update(range_name='A2', values=[[f"생성일시: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"]])
-            ws.update(range_name='A3', values=[[f"시나리오 {i+1}"] + g for i, g in enumerate(games)])
-            print("   ✅ 시트 저장 완료.")
+
+            # Games
+            game_rows = [[f"시나리오 {i+1}"] + g for i, g in enumerate(games)]
+            ws.update(range_name='A3', values=game_rows)
+
+            # [최종 요약부] - 반드시 마지막 하단에 위치
+            next_row = 3 + len(games) + 2
+
+            summary_header = ["============== [최종 요약] =============="]
+            total_info = [f"총 타격 조합 개수: {total_count}"]
+            reason_info = [f"전술적 선정 사유: {reasoning}"]
+
+            ws.update(range_name=f'A{next_row}', values=[summary_header])
+            ws.update(range_name=f'A{next_row+1}', values=[total_info])
+            ws.update(range_name=f'A{next_row+2}', values=[reason_info])
+
+            print("   ✅ 시트 저장 완료 (요약 포함).")
         except: pass
 
     # --- Phase 4: Evaluate ---
