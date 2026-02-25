@@ -505,12 +505,23 @@ class LottoOrchestrator:
 
             # 5. 결과 기록
             final = final_games if final_games else candidates[:10]
+
+            # [수정] 정확히 10세트 제한
+            if len(final) > 10: final = final[:10]
+
+            # [수정] 고유 번호 개수 계산
+            unique_nums = set()
+            for game in final:
+                unique_nums.update(game)
+            unique_msg = f"이번 10세트 조합에는 총 {len(unique_nums)}개의 고유 숫자가 사용되었습니다."
+
             if not total_count:
                 total_count = f"총 {len(final)}게임 추출 완료"
             if not reasoning:
                 reasoning = "Gemini 응답 실패. 기본 확률 분석 모델에 의한 자동 생성."
 
-            self._write_sheet(final, total_count, reasoning)
+            # [수정] unique_msg 추가 전달
+            self._write_sheet(final, total_count, reasoning, unique_msg)
 
             # [추가 기능] 히스토리 저장 및 리포트 작성
             target_round = self._get_naver_latest_round() + 1
@@ -541,18 +552,30 @@ class LottoOrchestrator:
         c_str = "\n".join([f"{i+1}. {c}" for i, c in enumerate(candidates)])
 
         # [프롬프트 개선] JSON 객체 포맷 요청
+        # [수정] 강력한 10세트 요구 및 상세 사유 요청
         full_prompt = f"""
+        당신은 냉철한 로또 분석가입니다. 아래 제공된 '후보 조합' 중에서 최고의 승률을 가질 것으로 예상되는 '정확히 10세트'를 선별하십시오.
+
+        [현재 적용 전략]
         {prompt_content}
 
         [후보 조합]
         {c_str}
 
+        [필수 지시사항]
+        1. **정확히 10세트(Game)** 만 출력하십시오.
+        2. **선정 사유의 구체화**: 뭉뚱그려 말하지 말고, 왜 이 번호들이 선택되었는지 구체적인 근거를 제시하십시오.
+           - 예시: "[1번] - 최근 10주간 미출현으로 인한 반동 기대", "[15, 17] - 3주 연속 홀수 강세 패턴 반영"
+
         [출력 형식]
-        반드시 아래 JSON 포맷을 준수하세요:
+        반드시 아래 JSON 포맷을 준수하십시오 (코드 블록 없이 순수 JSON만 출력):
         {{
-            "combinations": [[1,2,3,4,5,6], [7,8,9,10,11,12], ...],
-            "total_count": "총 X게임 추출 완료",
-            "tactical_reasoning": "딥러닝 가중치 및 최근 미출현 흐름 분석 결과... (3~4줄 요약)"
+            "combinations": [
+                [1, 2, 3, 4, 5, 6],
+                ... (총 10개)
+            ],
+            "total_count": "총 10게임 추출 완료",
+            "tactical_reasoning": "여기에 구체적인 선정 사유와 패턴 분석 내용을 상세히 기술하십시오."
         }}
         """
 
@@ -577,7 +600,7 @@ class LottoOrchestrator:
         except:
             return None, None, None
 
-    def _write_sheet(self, games, total_count, reasoning):
+    def _write_sheet(self, games, total_count, reasoning, unique_msg):
         try:
             sh = self.get_sheet()
             try: ws = sh.worksheet(REC_SHEET_NAME)
@@ -598,10 +621,12 @@ class LottoOrchestrator:
             summary_header = ["============== [최종 요약] =============="]
             total_info = [f"총 타격 조합 개수: {total_count}"]
             reason_info = [f"전술적 선정 사유: {reasoning}"]
+            unique_info = [unique_msg]
 
             ws.update(range_name=f'A{next_row}', values=[summary_header])
             ws.update(range_name=f'A{next_row+1}', values=[total_info])
             ws.update(range_name=f'A{next_row+2}', values=[reason_info])
+            ws.update(range_name=f'A{next_row+3}', values=[unique_info])
 
             print("   ✅ 시트 저장 완료 (요약 포함).")
         except: pass
