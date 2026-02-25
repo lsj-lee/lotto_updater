@@ -42,6 +42,8 @@ CREDS_FILE = 'creds_lotto.json'
 SHEET_NAME = '로또 max'
 REC_SHEET_NAME = '추천번호'
 LOG_SHEET_NAME = '작전로그'
+REPORT_SHEET_NAME = 'AEGIS_Daily_Report'
+HISTORY_SHEET_NAME = 'Prediction_History'
 STATE_FILE = 'hybrid_sniper_v5_state.pth'
 SNIPER_STATE_JSON = 'sniper_state.json'
 
@@ -184,6 +186,13 @@ class SniperState:
         self.state["recent_hit_rates"] = rates
         self.save_state()
 
+    def update_strategy_prompt(self, new_prompt, version):
+        self.state["active_strategy_prompt"] = {
+            "version": version,
+            "content": new_prompt
+        }
+        self.save_state()
+
 class LottoOrchestrator:
     def __init__(self):
         self.gc_client = self._auth()
@@ -231,6 +240,9 @@ class LottoOrchestrator:
         if torch.backends.mps.is_available():
             torch.mps.empty_cache()
 
+    # ------------------------------------------------------------------
+    # 📝 [Log System] AEGIS Report & Operation Log
+    # ------------------------------------------------------------------
     def log_operation(self, phase, status, detail=""):
         try:
             sh = self.get_sheet()
@@ -241,6 +253,7 @@ class LottoOrchestrator:
 
             now = datetime.datetime.now()
             icon = "✅" if status == "SUCCESS" else "❌" if status == "FAIL" else "💤"
+            # [규칙 1] 타임스탬프는 항상 A열(첫 번째 열)에 포함
             ws.insert_row([
                 now.strftime("%Y-%m-%d %H:%M:%S"),
                 now.strftime("%A"),
@@ -251,6 +264,48 @@ class LottoOrchestrator:
             ], 2)
             print(f"📝 [Log] {phase} - {status}")
         except: pass
+
+    def log_daily_report(self, category, message):
+        """
+        [일일 보고서] 제미나이의 제안이나 특이사항을 AEGIS_Daily_Report 탭에 기록
+        """
+        try:
+            sh = self.get_sheet()
+            try: ws = sh.worksheet(REPORT_SHEET_NAME)
+            except:
+                ws = sh.add_worksheet(title=REPORT_SHEET_NAME, rows=1000, cols=5)
+                ws.append_row(["Timestamp", "Category", "Message"])
+
+            now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            # [규칙 2] A열 타임스탬프, B열 카테고리, C열 메시지
+            ws.append_row([now_str, category, message])
+            print(f"📜 [Report] {category}: {message[:50]}...")
+        except Exception as e:
+            print(f"❌ 리포트 기록 실패: {e}")
+
+    def save_prediction_history(self, round_no, games):
+        """
+        [예측 히스토리] 생성된 번호를 별도 탭에 영구 보존 (Timestamp 포함)
+        """
+        try:
+            sh = self.get_sheet()
+            try: ws = sh.worksheet(HISTORY_SHEET_NAME)
+            except:
+                ws = sh.add_worksheet(title=HISTORY_SHEET_NAME, rows=1000, cols=10)
+                ws.append_row(["Timestamp", "Round", "Num1", "Num2", "Num3", "Num4", "Num5", "Num6"])
+
+            now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            rows_to_add = []
+            for g in games:
+                # [규칙 1] 타임스탬프 A열 포함
+                rows_to_add.append([now_str, round_no] + g)
+
+            # 한 번에 추가하여 API 호출 최소화
+            for row in rows_to_add:
+                ws.append_row(row)
+            print(f"💾 [History] {len(games)}개 조합 히스토리 저장 완료.")
+        except Exception as e:
+            print(f"❌ 히스토리 저장 실패: {e}")
 
     # --- Phase 1: Data Sync ---
     def sync_data(self):
@@ -281,9 +336,12 @@ class LottoOrchestrator:
 
             self.state_manager.update_phase("last_sync_date")
             self.log_operation("Phase 1", "SUCCESS", f"Updated {cnt}")
+            if cnt > 0:
+                self.log_daily_report("DATA_SYNC", f"{cnt}회차 데이터 업데이트 완료 (최신: {portal_last}회)")
         except Exception as e:
             print(f"❌ 동기화 실패: {e}")
             self.log_operation("Phase 1", "FAIL", str(e))
+            self.log_daily_report("ERROR_SYNC", str(e))
         finally:
             self.cleanup_memory()
 
@@ -362,14 +420,55 @@ class LottoOrchestrator:
             del model, X_seq, X_stat, y
         except Exception as e:
             self.log_operation("Phase 2", "FAIL", str(e))
+            self.log_daily_report("ERROR_TRAIN", str(e))
         finally:
             self.cleanup_memory()
 
-    # --- Phase 3: Predict ---
+    # --- Phase 3: Predict & Evolve ---
+    def evolve_strategy(self):
+        """
+        [자가 진화] 최근 성과를 분석하여 프롬프트를 개선
+        """
+        if not self.client: return
+
+        state = self.state_manager.state
+        hit_rates = state.get("recent_hit_rates", [])
+        current_prompt = state.get("active_strategy_prompt", {}).get("content", "")
+
+        if len(hit_rates) < 5: return
+
+        avg_hit = sum(hit_rates) / len(hit_rates)
+        print(f"🧬 [Evolution] 최근 적중률: {avg_hit:.2f}")
+
+        # 적중률이 낮거나(2.0 이하), 주기적으로 개선 시도
+        if avg_hit < 2.0 or random.random() < 0.3:
+            meta_prompt = f"""
+            당신은 AI 전략가입니다. 현재 로또 예측 프롬프트의 성과가 {avg_hit:.2f}개(6개 중)입니다.
+            더 나은 성과를 위해 현재 프롬프트를 개선해주세요.
+
+            [현재 프롬프트]
+            {current_prompt}
+
+            [요청]
+            개선된 프롬프트 내용만 출력하세요. (설명 없음)
+            """
+            try:
+                resp = self.client.models.generate_content(model=self.model_name, contents=meta_prompt)
+                new_prompt = resp.text.strip()
+                new_ver = f"v{datetime.datetime.now().strftime('%m%d-%H%M')}"
+                self.state_manager.update_strategy_prompt(new_prompt, new_ver)
+                self.log_daily_report("STRATEGY_EVOLVED", f"새 전략({new_ver}) 적용됨. 이전 성과: {avg_hit:.2f}")
+                print(f"✨ 전략 진화 완료: {new_ver}")
+            except Exception as e:
+                self.log_daily_report("EVOLUTION_FAIL", str(e))
+
     def load_and_predict(self):
         print("\n🔮 [Phase 3] 지능형 예측 (동적 프롬프트)...")
         self.cleanup_memory()
         try:
+            # 1. 자가 진화 시도
+            self.evolve_strategy()
+
             data = self.load_data()
             if not data or not os.path.exists(STATE_FILE): return
 
@@ -377,7 +476,7 @@ class LottoOrchestrator:
             model.load_state_dict(torch.load(STATE_FILE, map_location=DEVICE))
             model.eval()
 
-            # 1. Top 20 Extraction
+            # 2. Top 20 Extraction
             last_seq = data[-10:]
             input_seq = torch.tensor(np.array(last_seq)/45.0, dtype=torch.float32).unsqueeze(0).to(DEVICE)
             input_stat = torch.tensor(NDA_FeatureEngine.calculate_derived_features([data[-1]]), dtype=torch.float32).to(DEVICE)
@@ -388,7 +487,7 @@ class LottoOrchestrator:
             top_20 = [int(n+1) for n in probs.argsort()[::-1][:20]]
             print(f"   🎯 Top 20: {sorted(top_20)}")
 
-            # 2. Simulation & Filtering
+            # 3. Simulation & Filtering
             combos = list(itertools.combinations(top_20, 6))
             if len(combos) > 10000: combos = random.sample(combos, 10000)
 
@@ -400,21 +499,37 @@ class LottoOrchestrator:
             candidates = random.sample(filtered, 50) if len(filtered) > 50 else filtered
             print(f"   ✅ 후보 압축: {len(candidates)}개")
 
-            # 3. LLM Selection (Dynamic Prompt)
-            final = self._ask_gemini(candidates)
-            self._write_sheet(final if final else candidates[:10])
+            # 4. LLM Selection (Dynamic Prompt)
+            # JSON: {combinations, total_count, tactical_reasoning}
+            final_games, total_count, reasoning = self._ask_gemini(candidates)
+
+            # 5. 결과 기록
+            final = final_games if final_games else candidates[:10]
+            if not total_count:
+                total_count = f"총 {len(final)}게임 추출 완료"
+            if not reasoning:
+                reasoning = "Gemini 응답 실패. 기본 확률 분석 모델에 의한 자동 생성."
+
+            self._write_sheet(final, total_count, reasoning)
+
+            # [추가 기능] 히스토리 저장 및 리포트 작성
+            target_round = self._get_naver_latest_round() + 1
+            if final_games:
+                self.save_prediction_history(target_round, final_games)
+                self.log_daily_report("AI_INSIGHT", reasoning)
 
             self.state_manager.update_phase("last_predict_date")
-            self.log_operation("Phase 3", "SUCCESS", f"Generated {len(final) if final else 10}")
+            self.log_operation("Phase 3", "SUCCESS", f"Generated {len(final)}")
 
         except Exception as e:
             print(f"❌ 예측 실패: {e}")
             self.log_operation("Phase 3", "FAIL", str(e))
+            self.log_daily_report("ERROR_PREDICT", str(e))
         finally:
             self.cleanup_memory()
 
     def _ask_gemini(self, candidates):
-        if not self.client: return None
+        if not self.client: return None, None, None
 
         # [동적 프롬프트 로드]
         state_prompt = self.state_manager.state.get("active_strategy_prompt", {})
@@ -424,22 +539,71 @@ class LottoOrchestrator:
         print(f"   🧬 적용된 전략: {version}")
 
         c_str = "\n".join([f"{i+1}. {c}" for i, c in enumerate(candidates)])
-        full_prompt = f"{prompt_content}\n\n[후보]\n{c_str}\n\n[출력]\n오직 JSON 배열만 출력."
+
+        # [프롬프트 개선] JSON 객체 포맷 요청
+        full_prompt = f"""
+        {prompt_content}
+
+        [후보 조합]
+        {c_str}
+
+        [출력 형식]
+        반드시 아래 JSON 포맷을 준수하세요:
+        {{
+            "combinations": [[1,2,3,4,5,6], [7,8,9,10,11,12], ...],
+            "total_count": "총 X게임 추출 완료",
+            "tactical_reasoning": "딥러닝 가중치 및 최근 미출현 흐름 분석 결과... (3~4줄 요약)"
+        }}
+        """
 
         try:
             resp = self.client.models.generate_content(model=self.model_name, contents=full_prompt)
-            return json.loads(resp.text.strip().replace('```json','').replace('```',''))
-        except: return None
+            txt = resp.text.strip()
+            if txt.startswith("```json"): txt = txt[7:]
+            if txt.startswith("```"): txt = txt[3:]
+            if txt.endswith("```"): txt = txt[:-3]
 
-    def _write_sheet(self, games):
+            parsed = json.loads(txt.strip())
+
+            # List fallback
+            if isinstance(parsed, list):
+                return parsed, f"총 {len(parsed)}게임 추출 완료", "리스트 형태로 반환됨."
+
+            return (
+                parsed.get("combinations", []),
+                parsed.get("total_count", "정보 없음"),
+                parsed.get("tactical_reasoning", "")
+            )
+        except:
+            return None, None, None
+
+    def _write_sheet(self, games, total_count, reasoning):
         try:
             sh = self.get_sheet()
             try: ws = sh.worksheet(REC_SHEET_NAME)
             except: ws = sh.add_worksheet(REC_SHEET_NAME, 100, 20)
             ws.clear()
+
+            # Header
             ws.update(range_name='A1', values=[['🏆 Sniper V5 추천 번호']])
-            ws.update(range_name='A3', values=[[f"시나리오 {i+1}"] + g for i, g in enumerate(games)])
-            print("   ✅ 시트 저장 완료.")
+            ws.update(range_name='A2', values=[[f"생성일시: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"]])
+
+            # Games
+            game_rows = [[f"시나리오 {i+1}"] + g for i, g in enumerate(games)]
+            ws.update(range_name='A3', values=game_rows)
+
+            # [최종 요약부] - 반드시 마지막 하단에 위치
+            next_row = 3 + len(games) + 2
+
+            summary_header = ["============== [최종 요약] =============="]
+            total_info = [f"총 타격 조합 개수: {total_count}"]
+            reason_info = [f"전술적 선정 사유: {reasoning}"]
+
+            ws.update(range_name=f'A{next_row}', values=[summary_header])
+            ws.update(range_name=f'A{next_row+1}', values=[total_info])
+            ws.update(range_name=f'A{next_row+2}', values=[reason_info])
+
+            print("   ✅ 시트 저장 완료 (요약 포함).")
         except: pass
 
     # --- Phase 4: Evaluate ---
@@ -472,10 +636,12 @@ class LottoOrchestrator:
             avg = total_hits / len(preds)
             self.state_manager.add_hit_rate(avg)
             self.log_operation("Phase 4", "SUCCESS", f"Max: {max_hit}, Avg: {avg:.2f}")
+            self.log_daily_report("PERFORMANCE", f"지난 회차 결과: 최고 {max_hit}개 적중, 평균 {avg:.2f}개")
             print(f"   📊 결과: 최고 {max_hit}개, 평균 {avg:.2f}개")
 
         except Exception as e:
             self.log_operation("Phase 4", "FAIL", str(e))
+            self.log_daily_report("ERROR_EVAL", str(e))
 
 if __name__ == "__main__":
     app = LottoOrchestrator()
