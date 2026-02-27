@@ -37,8 +37,8 @@ load_dotenv()
 # ⚙️ [Configuration] 기지 좌표 및 설정
 # ==========================================
 
-SPREADSHEET_ID = '1lOifE_xRUocAY_Av-P67uBMKOV1BAb4mMwg_wde_tyA'
-CREDS_FILE = 'creds_lotto.json'
+SPREADSHEET_ID = os.getenv('SPREADSHEET_ID')
+CREDS_FILE = os.getenv('CREDS_FILE', 'creds_lotto.json')
 SHEET_NAME = '로또 max'
 REC_SHEET_NAME = '추천번호'
 LOG_SHEET_NAME = '작전로그'
