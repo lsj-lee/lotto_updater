@@ -1,0 +1,35 @@
+name: README Produce & Test Factory
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  auto-process:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📥 코드 가져오기
+      uses: actions/checkout@v4
+
+    - name: 🐍 파이썬 환경 세팅
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+
+    - name: 📦 필요 부품 설치
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    - name: 🧪 신무기 가동 테스트
+      run: |
+        # 파일이 있을 때만 실행하도록 설정하여 범용성을 높였습니다.
+        if [ -f aegis_light_test.py ]; then python3 aegis_light_test.py; fi
+
+    - name: 📝 README 상태 점검
+      run: |
+        echo "설명서 생성 로직을 위한 준비가 완료되었습니다."
+        ls -l README.md || echo "README.md 파일이 아직 없습니다."
