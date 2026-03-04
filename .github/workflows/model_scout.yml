@@ -1,0 +1,39 @@
+name: Weekly Model Scout (무기고 전수 검수)
+
+on:
+  schedule:
+    # 한국 시간 토요일 오후 6시 (UTC 토요일 09:00) 자동 실행
+    - cron: '0 9 * * 6'
+  workflow_dispatch: # GitHub 웹에서 수동 실행 버튼 활성화
+
+jobs:
+  scout-and-update:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📥 코드 저장소 불러오기
+      uses: actions/checkout@v4
+
+    - name: 🐍 파이썬 환경 세팅 (3.11)
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: 📦 필수 부품(라이브러리) 설치
+      run: |
+        python -m pip install --upgrade pip
+        pip install google-genai python-dotenv gspread oauth2client
+
+    - name: 🔐 구글 시트 접근용 비밀 열쇠 생성
+      env:
+        CREDS_JSON: ${{ secrets.CREDS_JSON }}
+      run: |
+        echo "$CREDS_JSON" > creds_lotto.json
+
+    - name: 🚀 무기고 정찰 및 시트 갱신 (Scout Mode)
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+      run: |
+        # 🎯 model_selector.py 단독 실행 시 auto_scout=True 모드로 작동하여 전수 조사를 수행합니다.
+        python model_selector.py

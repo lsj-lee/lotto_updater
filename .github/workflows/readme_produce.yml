@@ -1,0 +1,53 @@
+name: Sniper V7 README Produce & Health Factory
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: # 수동 실행 버튼
+
+jobs:
+  auto-factory:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📥 코드 가져오기
+      uses: actions/checkout@v4
+
+    - name: 🐍 파이썬 환경 세팅 (3.11)
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: 📦 필요 부품 설치
+      run: |
+        python -m pip install --upgrade pip
+        pip install google-genai python-dotenv gspread oauth2client
+
+    - name: 🧪 [건전성 체크] API 및 카탈로그 점검
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      run: |
+        # 사령관님의 check_catalog.py를 사용하여 시스템 가동 가능 여부 확인
+        if [ -f check_catalog.py ]; then 
+          python check_catalog.py
+        fi
+
+    - name: 📝 [README 작성] AI 기반 설명서 자동 생성
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      run: |
+        # 별도로 제공해드리는 readme_generator.py를 실행합니다.
+        if [ -f readme_generator.py ]; then
+          python readme_generator.py
+        else
+          echo "⚠️ readme_generator.py 파일이 없어 작성을 건너뜁니다."
+        fi
+
+    - name: 💾 [동기화] 생성된 README.md 저장 (Git Push)
+      run: |
+        git config --global user.name "GitHub Action Bot"
+        git config --global user.email "action@github.com"
+        git add README.md
+        git diff --quiet && git diff --staged --quiet || (git commit -m "📝 AI 자동 업데이트: README.md" && git push)
