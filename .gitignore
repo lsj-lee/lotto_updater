@@ -1,19 +1,28 @@
-# [보안] 구글 키 및 비밀 설정
-*.json
-*.env
-creds lotto.json
+# 1. 🔐 [1급 기밀] 보안 파일 차단 (절대 유출 금지)
+.env
+creds_lotto.json
 
-# [용량] 가상환경 및 파이썬 캐시
-.venv/
+# 2. 🧹 [임시 파일] 작전 잔해물 및 스크린샷 차단
+lotto_capture.png
+lotto_capture.jpg
+cron_log.txt
+
+# 3. 🧠 [로컬 상태] 로컬 환경 전용 저장 데이터 차단
+sniper_state.json
+
+# 4. 🐍 [파이썬 기본] 캐시 및 가상환경(M5 로컬) 차단
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+env.bak/
+venv.bak/
 
-# [모델] AI 학습 모델 파일 (로컬 보관)
-*.pth
-
-# [로그] 로컬 실행 기록 및 트래커
-*.txt
-*.log
-run_tracker.txt
-proposals/
-creds_lotto.json
+# 5. 💻 [OS 잔여물] macOS 특화 불필요 파일 차단
+.DS_Store
+.AppleDouble
+.LSOverride

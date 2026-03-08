@@ -12,6 +12,7 @@ from google import genai
 class SyncEngine:
     """
     👁️ [정보국] Playwright로 화면을 캡처하고, 시트에 기록된 중급 모델을 꺼내와 즉시 판독합니다.
+    작전 완료 후 임시 스크린샷은 자동으로 소각됩니다.
     """
     def __init__(self, armory, sheets):
         self.armory = armory
@@ -34,39 +35,51 @@ class SyncEngine:
         missing_eps = list(range(sheet_latest + 1, real_latest + 1))
         print(f"   🚀 총 {len(missing_eps)}개 회차 누락 발견. 스텔스 정찰기를 띄웁니다...")
 
-        # 1. Playwright로 사이트 접속 및 스크린샷 촬영
         capture_path = "lotto_capture.png"
-        asyncio.run(self._capture_screenshot("https://www.lotto.co.kr/article/list/AC01", capture_path))
-
-        if not os.path.exists(capture_path):
-            print("   ❌ 스크린샷 확보 실패. 작전을 중지합니다.")
-            return
-
-        # 2. Gemini Vision AI로 스크린샷 해독
-        print("   👁️ 제미나이 시각 지능으로 암호 해독 중...")
-        extracted_data = self._analyze_image(capture_path, missing_eps)
         
-        if not extracted_data:
-            print("   ❌ 시각 지능 분석 실패. (API 응답 오류 또는 표 인식 불가)")
-            return
+        # 🎯 [핵심 개조] 작전 성공 여부와 관계없이 반드시 증거를 인멸하기 위한 방어벽
+        try:
+            # 1. Playwright로 사이트 접속 및 스크린샷 촬영
+            asyncio.run(self._capture_screenshot("https://www.lotto.co.kr/article/list/AC01", capture_path))
 
-        # 3. 해독된 데이터를 시트에 주입 (과거 회차부터 순서대로)
-        for ep in missing_eps:
-            ep_str = str(ep)
-            if ep_str in extracted_data:
-                data = extracted_data[ep_str]
-                nums = data.get('numbers', [0]*6)
-                
-                row_data = [
-                    int(ep),
-                    nums[0], nums[1], nums[2], nums[3], nums[4], nums[5],
-                    data.get('bonus', 0), data.get('winners', 0), data.get('prize', 0)
-                ]
-                self._insert_to_sheet(row_data)
-                print(f"   ✅ {ep}회차 시트 삽입 완료: {nums} + 보너스 {data.get('bonus')}")
-                time.sleep(0.5)
-            else:
-                print(f"   ⚠️ {ep}회차 데이터를 사진에서 찾지 못했습니다.")
+            if not os.path.exists(capture_path):
+                print("   ❌ 스크린샷 확보 실패. 작전을 중지합니다.")
+                return
+
+            # 2. Gemini Vision AI로 스크린샷 해독
+            print("   👁️ 제미나이 시각 지능으로 암호 해독 중...")
+            extracted_data = self._analyze_image(capture_path, missing_eps)
+            
+            if not extracted_data:
+                print("   ❌ 시각 지능 분석 실패. (API 응답 오류 또는 표 인식 불가)")
+                return
+
+            # 3. 해독된 데이터를 시트에 주입 (과거 회차부터 순서대로)
+            for ep in missing_eps:
+                ep_str = str(ep)
+                if ep_str in extracted_data:
+                    data = extracted_data[ep_str]
+                    nums = data.get('numbers', [0]*6)
+                    
+                    row_data = [
+                        int(ep),
+                        nums[0], nums[1], nums[2], nums[3], nums[4], nums[5],
+                        data.get('bonus', 0), data.get('winners', 0), data.get('prize', 0)
+                    ]
+                    self._insert_to_sheet(row_data)
+                    print(f"   ✅ {ep}회차 시트 삽입 완료: {nums} + 보너스 {data.get('bonus')}")
+                    time.sleep(0.5)
+                else:
+                    print(f"   ⚠️ {ep}회차 데이터를 사진에서 찾지 못했습니다.")
+                    
+        finally:
+            # 🧹 [증거 인멸] 캡처 파일이 존재하면 즉시 소각합니다.
+            if os.path.exists(capture_path):
+                try:
+                    os.remove(capture_path)
+                    print("   🧹 임시 정찰 사진 소각 완료. (기지 청결 유지)")
+                except Exception as e:
+                    print(f"   ⚠️ 임시 사진 소각 실패: {e}")
 
     def _get_sheet_latest_ep(self):
         try:
@@ -120,10 +133,8 @@ class SyncEngine:
             3. 이미지에 해당 회차가 보이지 않으면 빈 JSON {{}} 을 반환하세요.
             """
             
-            # 🎯 [핵심 개조] 무기고 스캔 없이, 시트에서 이미 찾아둔 중급 모델을 즉시 읽어옵니다.
             try:
                 dashboard_ws = self.sheets.get_ws("Model_Dashboard")
-                # F열(6번째 칸)이 '중급(1순위)' 자리입니다.
                 target_model = dashboard_ws.cell(2, 6).value 
                 if not target_model or target_model == "없음":
                     target_model = "gemini-2.5-flash"
@@ -132,7 +143,6 @@ class SyncEngine:
                 
             print(f"   🎯 대시보드 연동 완료! 사용 모델: {target_model}")
             
-            # 사령부가 넘겨준 무기고가 있으면 그걸 쓰고, 단독 실행이면 즉석에서 클라이언트를 켭니다.
             if self.armory:
                 client = self.armory.client
             else:
@@ -169,7 +179,6 @@ if __name__ == "__main__":
         
         handler = SheetsHandler()
         
-        # 💡 지루한 SniperArmory 무기 검수를 여기서 완전히 빼버렸습니다!
         engine = SyncEngine(armory=None, sheets=handler)
         engine.run()
         print("\n✅ 비전 작전 종료.")
