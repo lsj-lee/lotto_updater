@@ -79,7 +79,6 @@ class LottoOrchestrator:
             print(f"   ⚠️ 전술 데이터 로드 실패. 기본값 무장: {e}")
             return {"epochs": 500, "lr": 0.0001, "hidden_size": 256, "dropout": 0.2, "extract_count": 20, "gemini_prompt": "로또 10조합 생성", "window_size": 10}
 
-    # 🛡️ [데이터 검문소] 불순물 완벽 제거
     def _parse_lotto_row(self, row):
         if not row or len(row) < 7: return None 
         nums = []
@@ -90,7 +89,6 @@ class LottoOrchestrator:
                 if 1 <= v <= 45: nums.append(v)
         return sorted(nums) if len(nums) == 6 else None
 
-    # 🧬 [피처 엔지니어링] 번호의 성질을 분석하여 9차원 데이터 생성
     def _extract_features(self, draw):
         base = [n / 45.0 for n in draw]
         sum_val = sum(draw) / 255.0  
@@ -142,7 +140,6 @@ class LottoOrchestrator:
             
             X.append([self._extract_features(draw) for draw in window])
             
-            # 🎯 [라벨 스무딩] 유연한 학습을 위한 0.95 / 0.01 세팅
             y_multi = [0.01] * 45 
             for n in target:
                 y_multi[n - 1] = 0.95 
@@ -259,12 +256,21 @@ class LottoOrchestrator:
 
         kmeans_numbers = self._perform_clustering_analysis(extract_count)
         
-        # 🎯 제미나이에게 군기 확립 (말대꾸 금지, 오직 번호만 출력)
+        # 🎯 [신규 전술] 템플릿을 통째로 주어 제미나이의 실수를 원천 차단합니다.
         force_prompt = """
-        [절대 엄수 지시사항]
-        1. 서론, 결론, 인사말, 분석 이유를 절대 쓰지 마세요.
-        2. 오직 '시나리오 1: 1, 2, 3, 4, 5, 6' 형식으로 딱 10줄만 출력하세요.
-        3. 부가 설명(홀짝 비율 등)을 한 글자라도 적으면 작전 실패로 간주합니다.
+        [출력 양식 - 반드시 아래 양식을 복사해서 내용만 채워 넣으세요]
+        시나리오 1: 1, 2, 3, 4, 5, 6
+        시나리오 2: 번호 6개
+        시나리오 3: 번호 6개
+        시나리오 4: 번호 6개
+        시나리오 5: 번호 6개
+        시나리오 6: 번호 6개
+        시나리오 7: 번호 6개
+        시나리오 8: 번호 6개
+        시나리오 9: 번호 6개
+        시나리오 10: 번호 6개
+        ---
+        이번 추천 조합은 M5 딥러닝의 예측 가중치와 K-Means 알고리즘의 패턴을 종합하여 (여기에 3문장 이내로 어떤 전술과 홀짝 비중을 사용했는지 명확한 사유를 적어주세요).
         """
         full_command = f"{self.tactics['gemini_prompt']}\n{force_prompt}\n\n[M5 후보]: {m5_numbers}\n[K-Means 후보]: {kmeans_numbers}"
         
@@ -275,30 +281,41 @@ class LottoOrchestrator:
                 ws = self.sheets.get_ws(REC_SHEET_NAME)
                 now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 
-                # 🎯 [신규 전술] 기존 표 구역의 잔상을 완전히 날려버립니다.
-                ws.batch_clear(["A2:G20", "A22:G40"]) 
-                
+                ws.batch_clear(["A2:G100"]) 
                 ws.update(range_name='A2:C2', values=[[now_str, "초정밀 하이브리드 타격", "상세 내용은 하단 표 참조"]])
                 
-                # 🎯 [정밀 파싱] AI의 텍스트에서 '시나리오'와 숫자를 뜯어내어 엑셀 표(Array) 형태로 변환
                 scenarios = re.findall(r"시나리오\s*(\d+)[:\s.-]+([\d\s,]+)", result_text)
                 table_data = []
                 for idx, nums_str in scenarios:
                     nums = re.findall(r"\d+", nums_str)
                     if len(nums) >= 6:
-                        # [시나리오 1, 번호1, 번호2, 번호3, 번호4, 번호5, 번호6] 형태의 리스트 생성
                         row = [f"시나리오 {idx}"] + nums[:6]
                         table_data.append(row)
                 
+                next_row = 15 
+                
                 if table_data:
-                    # A3부터 차례대로 표에 덮어쓰기 실시
-                    ws.update(range_name=f'A3:G{3 + len(table_data) - 1}', values=table_data)
+                    last_row = 3 + len(table_data) - 1
+                    ws.update(range_name=f'A3:G{last_row}', values=table_data)
                     print(f"   ✅ [표 업데이트 완료] {len(table_data)}개의 새로운 시나리오가 각 셀(Cell)에 정확히 배치되었습니다.")
+                    next_row = last_row + 2
                 else:
                     print("   ⚠️ 제미나이의 답변에서 '시나리오' 형식을 추출하지 못했습니다.")
                 
-                # 요약 텍스트 및 사유는 22행부터 기록하여 표와 간격을 둡니다. (만약 텍스트가 남았다면)
-                ws.update_acell('A22', result_text)
+                # 🎯 [강력한 요약 추출기] '---' 가 없어도 시나리오 줄만 지우고 남은 모든 글자를 긁어옵니다.
+                parts = result_text.split('---')
+                if len(parts) > 1:
+                    summary_text = parts[1].strip()
+                else:
+                    # 구분선이 없으면, '시나리오'라는 단어가 안 들어간 줄들만 모아서 요약으로 만듭니다.
+                    summary_lines = [line.strip() for line in result_text.split('\n') if '시나리오' not in line and line.strip() != '']
+                    summary_text = '\n'.join(summary_lines)
+                
+                if not summary_text:
+                    summary_text = "M5 엔진과 K-Means 비지도 학습을 결합하여 최적의 조합을 산출했습니다."
+                
+                ws.update_acell(f'A{next_row}', f"📊 [AI 타격 전술 요약 및 사유]\n{summary_text}")
+                print(f"   ✅ [요약 업데이트 완료] 핵심 전술 텍스트가 A{next_row} 위치에 기록되었습니다.")
                 
             except Exception as e:
                 print(f"   ⚠️ 시트 기록 중 오류: {e}")
