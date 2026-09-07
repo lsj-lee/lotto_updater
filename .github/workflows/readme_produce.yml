@@ -50,7 +50,12 @@ jobs:
 
     - name: 💾 [동기화] 생성된 README.md 저장 (Git Push)
       run: |
-        git config --global user.name "GitHub Action Bot"
-        git config --global user.email "action@github.com"
-        git add README.md
-        git diff --quiet && git diff --staged --quiet || (git commit -m "📝 AI 자동 업데이트: README.md" && git push)
+        # 🎯 방어 로직: 파일이 실제로 존재할 때만 깃허브 저장소로 밀어넣기 수행
+        if [ -f README.md ]; then
+          git config --global user.name "GitHub Action Bot"
+          git config --global user.email "action@github.com"
+          git add README.md
+          git diff --quiet && git diff --staged --quiet || (git commit -m "📝 AI 자동 업데이트: README.md" && git push)
+        else
+          echo "⚠️ 갱신할 README.md 파일이 생성되지 않아 Git Push를 생략합니다."
+        fi
