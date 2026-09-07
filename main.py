@@ -8,6 +8,9 @@ from phase_02.m5_ultimate import M5UltimateEngine
 from phase_03.gemini_tactician import GeminiTactician
 from phase_04.tactical_review import TacticalReviewer
 
+# [NEW] XAI 투시경 모듈을 메인 시스템에 통합
+from xai_mind_reader import run_mind_reader
+
 def main():
     print("="*60)
     print(" 📊 [M5 System] 로또 AI 예측 통합 컨트롤러")
@@ -19,10 +22,11 @@ def main():
     print("  3. Phase 03 : AI 분석 리포트 생성")
     print("  4. Phase 04 : 과거 예측 결과 복기 및 피드백 생성")
     print("  5. ALL      : 전체 페이즈 자동 연속 실행")
+    print("  6. XAI      : 기계 심리 분석 가동 (Alpha & Beta 뇌파 스캔)")
     print("  0. 시스템 종료")
     print("-" * 60)
     
-    choice = input("명령 입력 (0~5): ").strip()
+    choice = input("명령 입력 (0~6): ").strip()
     
     if choice == '0':
         print("\n시스템을 정상 종료합니다.")
@@ -51,7 +55,6 @@ def main():
         print("\n[진행] Phase 03: AI 분석 리포트 생성을 시작합니다...")
         sheets = SheetsHandler()
         tactician = GeminiTactician(sheets)
-        # AI 모델이 M5 데이터를 기반으로 분석을 진행합니다.
         final_sets, hot_nums, m5_data = tactician.call_m5_and_get_results()
         briefing_text = tactician.request_tactical_briefing(m5_data)
         tactician.save_to_spreadsheet(final_sets, hot_nums, briefing_text)
@@ -64,6 +67,11 @@ def main():
         reviewer.execute_review()
         print("\n✅ Phase 04 결과 복기 및 분석이 완료되었습니다.")
         
+    elif choice == '6':
+        print("\n[진행] XAI 기계 심리 분석 스캐너를 단독 가동합니다...")
+        run_mind_reader()
+        print("\n✅ XAI 스캔이 완료되었습니다.")
+
     elif choice == '5':
         print("\n[진행] 전체 페이즈(ALL) 자동 연속 실행을 개시합니다.")
         
@@ -86,7 +94,13 @@ def main():
         reviewer = TacticalReviewer(sheets)
         reviewer.execute_review()
         
-        print("\n✅ 모든 프로세스가 성공적으로 종료되었습니다.")
+        # ====================================================
+        # [NEW] 작전 최종 단계: XAI 스캐너 자동 개입
+        # ====================================================
+        print("\n>> [XAI 개입] 모든 프로세스 완료. 기계 심리 분석 스캐너를 가동합니다...")
+        run_mind_reader()
+        
+        print("\n✅ 모든 프로세스 및 XAI 스캔이 성공적으로 종료되었습니다.")
         
     else:
         print("❌ 잘못된 입력입니다. 프로그램을 종료합니다.")

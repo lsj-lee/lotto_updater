@@ -6,6 +6,9 @@ on:
     - cron: '0 9 * * 6'
   workflow_dispatch: # GitHub 웹에서 수동 실행 버튼 활성화
 
+permissions:
+  contents: write # 🤖 깃허브 봇이 갱신된 JSON 파일을 푸시할 수 있도록 쓰기 권한 부여
+
 jobs:
   scout-and-update:
     runs-on: ubuntu-latest
@@ -22,7 +25,8 @@ jobs:
     - name: 📦 필수 부품(라이브러리) 설치
       run: |
         python -m pip install --upgrade pip
-        pip install google-genai python-dotenv gspread oauth2client
+        # core 모듈들이 요구하는 pandas, numpy 등 필수 라이브러리 추가
+        pip install google-genai python-dotenv gspread oauth2client pandas numpy
 
     - name: 🔐 구글 시트 접근용 비밀 열쇠 생성
       env:
@@ -35,5 +39,13 @@ jobs:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
       run: |
-        # 🎯 model_selector.py 단독 실행 시 auto_scout=True 모드로 작동하여 전수 조사를 수행합니다.
-        python model_selector.py
+        # 🎯 모듈 경로 오류 수정: core 폴더 내부의 스크립트를 모듈(-m) 형태로 안전하게 실행
+        PYTHONPATH=. python -m core.model_selector
+
+    - name: 💾 [동기화] 갱신된 무기고(m5_armory.json) 저장
+      run: |
+        git config --global user.name "GitHub Action Bot"
+        git config --global user.email "action@github.com"
+        git add m5_armory.json
+        # 변경사항이 있을 때만 커밋 및 푸시하여 에러 방지
+        git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 M5 Armory Auto-Update: 무기고 최신화 완료" && git push)

@@ -7,13 +7,11 @@ import json
 import re
 from dotenv import load_dotenv
 from google import genai 
-from core.model_selector import SniperArmory # [NEW] 무기고 연동
+from core.model_selector import SniperArmory
 
 class TacticalReviewer:
     """
     🔍 [Phase 04] 예측 결과 피드백 및 자기 학습(Self-Correction) 데이터 생성
-    - 구글 시트(인간용 줄글 리포트) + 로컬 JSON(기계용 4대 추론 규칙) 완벽 분리 저장
-    - 무기고(Armory) 연동 및 503 과부하 에러 방어(Exponential Backoff) 탑재
     """
     def __init__(self, sheets_handler):
         self.sheets = sheets_handler
@@ -25,7 +23,7 @@ class TacticalReviewer:
             raise ValueError("🚨 .env 파일에 GEMINI_API_KEY가 설정되지 않았습니다!")
         
         self.client = genai.Client(api_key=api_key)
-        self.armory = SniperArmory() # 무기고 장착
+        self.armory = SniperArmory()
 
     def execute_review(self):
         print("\n" + "="*60)
@@ -45,7 +43,6 @@ class TacticalReviewer:
                 ws_review = self.doc.worksheet("오답노트")
                 reviewed_draws = [int(r[0]) for r in ws_review.get_all_values()[1:] if str(r[0]).isdigit()]
                 if latest_actual_draw in reviewed_draws:
-                    # [핵심 수정] 프로세스 종료(return)를 없애고 덮어쓰기 안내로 변경하여 연산을 강행합니다.
                     print(f"   ⚠️ {latest_actual_draw}회차 분석 피드백이 이미 존재합니다. 기존 데이터를 삭제하고 [새로 계산하여 덮어쓰기]를 진행합니다.")
             except Exception:
                 pass 
@@ -75,7 +72,6 @@ class TacticalReviewer:
             bonus_num = int(actual_row['보너스'])
 
             hits = set(pred_nums) & set(actual_nums)
-            bonus_hit = bonus_num in pred_nums
 
             print(f"   🎯 분석 대상: 제 {latest_actual_draw}회차")
             print(f"   📊 적중 결과: {len(hits)}개 일치 {sorted(list(hits))}")
@@ -101,23 +97,22 @@ class TacticalReviewer:
             - 아래 JSON 키값을 절대 변경하지 말고, 분석 결과에 맞춰 값만 수정하십시오.
             ```json
             {{
-                "strategy_mode": "trend_following", // 흐름 유지면 "trend_following", 반전 예상 시 "mean_reversion"
+                "strategy_mode": "trend_following",
                 "zone_weights": {{
-                    "zone_1": 1.0, // 1~10번대 가중치 (1.0 기준, 0.5~1.5)
-                    "zone_2": 1.0, // 11~20번대 가중치
-                    "zone_3": 1.0, // 21~30번대 가중치
-                    "zone_4": 1.0, // 31~40번대 가중치
-                    "zone_5": 1.0  // 41~45번대 가중치
+                    "zone_1": 1.0, 
+                    "zone_2": 1.0, 
+                    "zone_3": 1.0, 
+                    "zone_4": 1.0, 
+                    "zone_5": 1.0  
                 }},
-                "hot_last_digits": [], // 주목할 끝수 배열 (예: [3, 7])
-                "require_consecutive": false, // 다음 회차 연번(붙은 번호) 출현 확률이 높으면 true
-                "carryover_weight": 1.0 // 전 회차 당첨 번호(이월수) 재출현 가능성 (1.0 기준, 0.5~1.5)
+                "hot_last_digits": [], 
+                "require_consecutive": false, 
+                "carryover_weight": 1.0 
             }}
             ```
             """
 
             pipeline = self.armory.get_model_pipeline(target_tier="중급")
-            
             max_retries = 3
             human_text = ""
             tactical_json = {}
@@ -133,7 +128,8 @@ class TacticalReviewer:
                         
                         if json_match:
                             tactical_json = json.loads(json_match.group(1))
-                            human_text = re.sub(r'```(?:json)?\s*\{.*?\}\s*```', '', review_text, flags=re.DOTALL).strip()
+                            # [수정 완료] 빈껍데기 제목(### (2) 기계용...)까지 통째로 완벽하게 도려냅니다.
+                            human_text = re.sub(r'(?i)(?:---|)\n*###\s*\(?2\)?.*?```(?:json)?\s*\{.*?\}\s*```', '', review_text, flags=re.DOTALL).strip()
                         else:
                             tactical_json = {
                                 "strategy_mode": "trend_following",
@@ -181,9 +177,6 @@ class TacticalReviewer:
                 ws_review = self.doc.add_worksheet(title="오답노트", rows="1000", cols="5")
                 ws_review.append_row(["회차", "분석 일자", "성과 분석 피드백"])
 
-            # ========================================================
-            # [수정 완료] 기존 데이터 중복 방지 (삭제 후 덮어쓰기)
-            # ========================================================
             all_records = ws_review.get_all_values()
             for i, r in enumerate(all_records):
                 if r and str(r[0]).strip() == str(draw_no):
@@ -200,16 +193,13 @@ class TacticalReviewer:
         try:
             memory_file = "m5_memory.json"
             target_draw = draw_no + 1
-            
             data = {
                 "target_draw": target_draw,
                 "update_time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "tactical_directives": tactical_json
             }
-            
             with open(memory_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4, ensure_ascii=False)
-                
             print(f"   💾 [로컬 메모리] 제 {target_draw}회차 예측을 위한 M5 전술 지시서(JSON) 덮어쓰기 완료.")
         except Exception as e:
             print(f"   ⚠️ 로컬 JSON 메모리 저장 실패: {e}")

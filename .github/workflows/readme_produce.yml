@@ -7,6 +7,9 @@ on:
     branches: [ "main" ]
   workflow_dispatch: # 수동 실행 버튼
 
+permissions:
+  contents: write # 🤖 README 파일을 자동 푸시하기 위한 쓰기 권한 부여
+
 jobs:
   auto-factory:
     runs-on: ubuntu-latest
@@ -23,26 +26,26 @@ jobs:
     - name: 📦 필요 부품 설치
       run: |
         python -m pip install --upgrade pip
-        pip install google-genai python-dotenv gspread oauth2client
+        pip install google-genai python-dotenv gspread oauth2client pandas numpy
 
     - name: 🧪 [건전성 체크] API 및 카탈로그 점검
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: |
-        # 사령관님의 check_catalog.py를 사용하여 시스템 가동 가능 여부 확인
         if [ -f check_catalog.py ]; then 
-          python check_catalog.py
+          PYTHONPATH=. python check_catalog.py
+        else
+          echo "⚠️ check_catalog.py 파일이 감지되지 않아 점검을 건너뜁니다."
         fi
 
     - name: 📝 [README 작성] AI 기반 설명서 자동 생성
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: |
-        # 별도로 제공해드리는 readme_generator.py를 실행합니다.
         if [ -f readme_generator.py ]; then
-          python readme_generator.py
+          PYTHONPATH=. python readme_generator.py
         else
-          echo "⚠️ readme_generator.py 파일이 없어 작성을 건너뜁니다."
+          echo "⚠️ readme_generator.py 파일이 감지되지 않아 리포트 작성을 건너뜁니다."
         fi
 
     - name: 💾 [동기화] 생성된 README.md 저장 (Git Push)

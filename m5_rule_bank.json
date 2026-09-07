@@ -3,7 +3,7 @@
         "type": "freq_recent",
         "value": 15,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.13090909090909092
     },
     "Rule_Freq_22": {
         "type": "freq_recent",
@@ -15,7 +15,7 @@
         "type": "freq_recent",
         "value": 5,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.13363636363636364
     },
     "Rule_GapMod_5": {
         "type": "gap_mod",
@@ -27,43 +27,43 @@
         "type": "freq_recent",
         "value": 38,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.12727272727272726
     },
     "Rule_Freq_27": {
         "type": "freq_recent",
         "value": 27,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.13090909090909092
     },
     "Rule_GapMod_7": {
         "type": "gap_mod",
         "value": 7,
         "status": "Cold Dormant",
-        "win_rate": 0.12
+        "win_rate": 0.11666666666666667
     },
     "Rule_Freq_49": {
         "type": "freq_recent",
         "value": 49,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.13090909090909092
     },
     "Rule_Freq_19": {
         "type": "freq_recent",
         "value": 19,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.12727272727272726
     },
     "Rule_Freq_31": {
         "type": "freq_recent",
         "value": 31,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.13272727272727272
     },
     "Rule_Freq_23": {
         "type": "freq_recent",
         "value": 23,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.13090909090909092
     },
     "Rule_Freq_44": {
         "type": "freq_recent",
@@ -74,110 +74,110 @@
     "Rule_GapMod_19": {
         "type": "gap_mod",
         "value": 19,
-        "status": "Cold Dormant",
-        "win_rate": 0.14
+        "status": "Warm Dormant",
+        "win_rate": 0.16
     },
     "Rule_Freq_39": {
         "type": "freq_recent",
         "value": 39,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.12727272727272726
     },
     "Rule_Freq_46": {
         "type": "freq_recent",
         "value": 46,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.13090909090909092
     },
     "Rule_Freq_29": {
         "type": "freq_recent",
         "value": 29,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.13090909090909092
     },
     "Rule_GapMod_8": {
         "type": "gap_mod",
         "value": 8,
         "status": "Cold Dormant",
-        "win_rate": 0.144
+        "win_rate": 0.136
     },
     "Rule_Freq_20": {
         "type": "freq_recent",
         "value": 20,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.12727272727272726
     },
     "Rule_Freq_18": {
         "type": "freq_recent",
         "value": 18,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.13272727272727272
     },
     "Rule_Freq_32": {
         "type": "freq_recent",
         "value": 32,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.13090909090909092
     },
     "Rule_Freq_24": {
         "type": "freq_recent",
         "value": 24,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.12727272727272726
     },
     "Rule_GapMod_17": {
         "type": "gap_mod",
         "value": 17,
         "status": "Cold Dormant",
-        "win_rate": 0.11
+        "win_rate": 0.1
     },
     "Rule_Freq_34": {
         "type": "freq_recent",
         "value": 34,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.12727272727272726
     },
     "Rule_Freq_13": {
         "type": "freq_recent",
         "value": 13,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.12727272727272726
     },
     "Rule_Freq_17": {
         "type": "freq_recent",
         "value": 17,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.12727272727272726
     },
     "Rule_Freq_7": {
         "type": "freq_recent",
         "value": 7,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.13090909090909092
     },
     "Rule_GapMod_16": {
         "type": "gap_mod",
         "value": 16,
-        "status": "Warm Dormant",
-        "win_rate": 0.16
+        "status": "Cold Dormant",
+        "win_rate": 0.14
     },
     "Rule_Freq_25": {
         "type": "freq_recent",
         "value": 25,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.1318181818181818
     },
     "Rule_Freq_33": {
         "type": "freq_recent",
         "value": 33,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.13363636363636364
     },
     "Rule_GapMod_40": {
         "type": "gap_mod",
         "value": 40,
         "status": "Cold Dormant",
-        "win_rate": 0.1
+        "win_rate": 0.12
     },
     "Rule_Freq_6": {
         "type": "freq_recent",
@@ -189,49 +189,49 @@
         "type": "freq_recent",
         "value": 10,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.12727272727272726
     },
     "Rule_Freq_35": {
         "type": "freq_recent",
         "value": 35,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.13090909090909092
     },
     "Rule_Freq_9": {
         "type": "freq_recent",
         "value": 9,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.13272727272727272
     },
     "Rule_Freq_41": {
         "type": "freq_recent",
         "value": 41,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.13090909090909092
     },
     "Rule_Freq_47": {
         "type": "freq_recent",
         "value": 47,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.13363636363636364
     },
     "Rule_Freq_37": {
         "type": "freq_recent",
         "value": 37,
         "status": "Cold Dormant",
-        "win_rate": 0.12818181818181817
+        "win_rate": 0.12727272727272726
     },
     "Rule_GapMod_15": {
         "type": "gap_mod",
         "value": 15,
         "status": "Warm Dormant",
-        "win_rate": 0.15333333333333332
+        "win_rate": 0.16666666666666666
     },
     "Rule_Freq_21": {
         "type": "freq_recent",
         "value": 21,
         "status": "Cold Dormant",
-        "win_rate": 0.13090909090909092
+        "win_rate": 0.13
     },
     "Rule_GapMod_41": {
         "type": "gap_mod",
@@ -249,18 +249,282 @@
         "type": "gap_mod",
         "value": 20,
         "status": "Cold Dormant",
-        "win_rate": 0.1
+        "win_rate": 0.13
     },
     "Rule_Freq_26": {
         "type": "freq_recent",
         "value": 26,
         "status": "Cold Dormant",
-        "win_rate": 0.13090909090909092
+        "win_rate": 0.13
     },
     "Rule_Freq_30": {
         "type": "freq_recent",
         "value": 30,
         "status": "Cold Dormant",
+        "win_rate": 0.12727272727272726
+    },
+    "Rule_GapMod_13": {
+        "type": "gap_mod",
+        "value": 13,
+        "status": "Cold Dormant",
+        "win_rate": 0.12666666666666668
+    },
+    "Rule_Freq_3": {
+        "type": "freq_recent",
+        "value": 3,
+        "status": "Cold Dormant",
         "win_rate": 0.13090909090909092
+    },
+    "Rule_GapMod_10": {
+        "type": "gap_mod",
+        "value": 10,
+        "status": "Cold Dormant",
+        "win_rate": 0.13
+    },
+    "Rule_GapMod_37": {
+        "type": "gap_mod",
+        "value": 37,
+        "status": "Cold Dormant",
+        "win_rate": 0.12
+    },
+    "Rule_Freq_45": {
+        "type": "freq_recent",
+        "value": 45,
+        "status": "Cold Dormant",
+        "win_rate": 0.13272727272727272
+    },
+    "Rule_GapMod_42": {
+        "type": "gap_mod",
+        "value": 42,
+        "status": "Cold Dormant",
+        "win_rate": 0.14
+    },
+    "Rule_GapMod_14": {
+        "type": "gap_mod",
+        "value": 14,
+        "status": "Cold Dormant",
+        "win_rate": 0.12666666666666668
+    },
+    "Rule_GapMod_31": {
+        "type": "gap_mod",
+        "value": 31,
+        "status": "Warm Dormant",
+        "win_rate": 0.18
+    },
+    "Rule_GapMod_23": {
+        "type": "gap_mod",
+        "value": 23,
+        "status": "Cold Dormant",
+        "win_rate": 0.12
+    },
+    "Rule_Freq_50": {
+        "type": "freq_recent",
+        "value": 50,
+        "status": "Cold Dormant",
+        "win_rate": 0.13090909090909092
+    },
+    "Rule_Freq_4": {
+        "type": "freq_recent",
+        "value": 4,
+        "status": "Cold Dormant",
+        "win_rate": 0.12727272727272726
+    },
+    "Rule_GapMod_18": {
+        "type": "gap_mod",
+        "value": 18,
+        "status": "Warm Dormant",
+        "win_rate": 0.15
+    },
+    "Rule_GapMod_24": {
+        "type": "gap_mod",
+        "value": 24,
+        "status": "Warm Dormant",
+        "win_rate": 0.16
+    },
+    "Rule_GapMod_33": {
+        "type": "gap_mod",
+        "value": 33,
+        "status": "Cold Dormant",
+        "win_rate": 0.12
+    },
+    "Rule_Freq_8": {
+        "type": "freq_recent",
+        "value": 8,
+        "status": "Cold Dormant",
+        "win_rate": 0.13272727272727272
+    },
+    "Rule_Freq_16": {
+        "type": "freq_recent",
+        "value": 16,
+        "status": "Cold Dormant",
+        "win_rate": 0.13090909090909092
+    },
+    "Rule_GapMod_25": {
+        "type": "gap_mod",
+        "value": 25,
+        "status": "Cold Dormant",
+        "win_rate": 0.12
+    },
+    "Rule_GapMod_9": {
+        "type": "gap_mod",
+        "value": 9,
+        "status": "Warm Dormant",
+        "win_rate": 0.156
+    },
+    "Rule_GapMod_28": {
+        "type": "gap_mod",
+        "value": 28,
+        "status": "Warm Dormant",
+        "win_rate": 0.18
+    },
+    "Rule_GapMod_45": {
+        "type": "gap_mod",
+        "value": 45,
+        "status": "Cold Dormant",
+        "win_rate": 0.14
+    },
+    "Rule_Freq_40": {
+        "type": "freq_recent",
+        "value": 40,
+        "status": "Cold Dormant",
+        "win_rate": 0.13090909090909092
+    },
+    "Rule_Freq_42": {
+        "type": "freq_recent",
+        "value": 42,
+        "status": "Cold Dormant",
+        "win_rate": 0.12727272727272726
+    },
+    "Rule_Freq_43": {
+        "type": "freq_recent",
+        "value": 43,
+        "status": "Cold Dormant",
+        "win_rate": 0.13363636363636364
+    },
+    "Rule_Freq_28": {
+        "type": "freq_recent",
+        "value": 28,
+        "status": "Cold Dormant",
+        "win_rate": 0.13090909090909092
+    },
+    "Rule_GapMod_30": {
+        "type": "gap_mod",
+        "value": 30,
+        "status": "Cold Dormant",
+        "win_rate": 0.14
+    },
+    "Rule_GapMod_22": {
+        "type": "gap_mod",
+        "value": 22,
+        "status": "Cold Dormant",
+        "win_rate": 0.11
+    },
+    "Rule_Freq_48": {
+        "type": "freq_recent",
+        "value": 48,
+        "status": "Cold Dormant",
+        "win_rate": 0.13363636363636364
+    },
+    "Rule_Freq_12": {
+        "type": "freq_recent",
+        "value": 12,
+        "status": "Cold Dormant",
+        "win_rate": 0.12727272727272726
+    },
+    "Rule_GapMod_36": {
+        "type": "gap_mod",
+        "value": 36,
+        "status": "Cold Dormant",
+        "win_rate": 0.14
+    },
+    "Rule_Freq_11": {
+        "type": "freq_recent",
+        "value": 11,
+        "status": "Cold Dormant",
+        "win_rate": 0.13090909090909092
+    },
+    "Rule_GapMod_6": {
+        "type": "gap_mod",
+        "value": 6,
+        "status": "Cold Dormant",
+        "win_rate": 0.14
+    },
+    "Rule_Freq_36": {
+        "type": "freq_recent",
+        "value": 36,
+        "status": "Cold Dormant",
+        "win_rate": 0.12727272727272726
+    },
+    "Rule_Freq_14": {
+        "type": "freq_recent",
+        "value": 14,
+        "status": "Cold Dormant",
+        "win_rate": 0.13090909090909092
+    },
+    "Rule_GapMod_32": {
+        "type": "gap_mod",
+        "value": 32,
+        "status": "Cold Dormant",
+        "win_rate": 0.14
+    },
+    "Rule_GapMod_29": {
+        "type": "gap_mod",
+        "value": 29,
+        "status": "Cold Dormant",
+        "win_rate": 0.14
+    },
+    "Rule_GapMod_44": {
+        "type": "gap_mod",
+        "value": 44,
+        "status": "Cold Dormant",
+        "win_rate": 0.12
+    },
+    "Rule_GapMod_34": {
+        "type": "gap_mod",
+        "value": 34,
+        "status": "Cold Dormant",
+        "win_rate": 0.1
+    },
+    "Rule_GapMod_38": {
+        "type": "gap_mod",
+        "value": 38,
+        "status": "Warm Dormant",
+        "win_rate": 0.18
+    },
+    "Rule_GapMod_26": {
+        "type": "gap_mod",
+        "value": 26,
+        "status": "Cold Dormant",
+        "win_rate": 0.12
+    },
+    "Rule_GapMod_35": {
+        "type": "gap_mod",
+        "value": 35,
+        "status": "Cold Dormant",
+        "win_rate": 0.14
+    },
+    "Rule_GapMod_27": {
+        "type": "gap_mod",
+        "value": 27,
+        "status": "Active",
+        "win_rate": 0.2
+    },
+    "Rule_GapMod_39": {
+        "type": "gap_mod",
+        "value": 39,
+        "status": "Cold Dormant",
+        "win_rate": 0.14
+    },
+    "Rule_GapMod_11": {
+        "type": "gap_mod",
+        "value": 11,
+        "status": "Cold Dormant",
+        "win_rate": 0.105
+    },
+    "Rule_GapMod_21": {
+        "type": "gap_mod",
+        "value": 21,
+        "status": "Cold Dormant",
+        "win_rate": 0.11
     }
 }

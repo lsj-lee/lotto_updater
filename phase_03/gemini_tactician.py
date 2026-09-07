@@ -113,7 +113,13 @@ class GeminiTactician:
             ws_rec = sh.worksheet("추천번호")
             ws_rec.clear()
             ws_rec.update('A1', [[f"제 {target_draw}회차 M5 예측 10세트 조합"]])
-            ws_rec.update('A2', final_sets)
+            
+            # ========================================================
+            # [버그 수정] numpy.int64 타입을 구글 시트가 읽을 수 있도록 순수 Python int로 강제 변환
+            # ========================================================
+            clean_final_sets = [[int(num) for num in lotto_set] for lotto_set in final_sets]
+            ws_rec.update('A2', clean_final_sets)
+            
             print("   ✅ [추천번호] 탭 최신 데이터 갱신 완료.")
         except Exception as e:
             print(f"   ⚠️ 추천번호 탭 저장 실패: {e}")
