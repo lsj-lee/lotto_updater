@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import io
+import sys
 import datetime
 import time
 import json
@@ -12,6 +13,7 @@ from core.model_selector import SniperArmory
 class TacticalReviewer:
     """
     🔍 [Phase 04] 예측 결과 피드백 및 자기 학습(Self-Correction) 데이터 생성
+    - [NEW] 최상위 모델 통신 3회 실패 시 차순위 전환 없이 즉시 작전 중단
     """
     def __init__(self, sheets_handler):
         self.sheets = sheets_handler
@@ -86,14 +88,14 @@ class TacticalReviewer:
             - 실제 당첨 번호: {actual_nums} (보너스: {bonus_num})
             - 적중한 번호: {sorted(list(hits))}
             
-            [중요: 필수 출력 형식]
-            반드시 아래 2가지 양식을 모두 포함하여 답변하십시오.
+            [중요: 절대 준수 규칙]
+            답변은 반드시 아래 (1)번과 (2)번 양식을 모두 포함해야 하며, 어떠한 경우에도 (2)번 JSON 마크다운 블록을 누락해서는 안 됩니다.
 
             (1) 사람을 위한 분석 리포트 (일반 텍스트)
             - 모델이 어떤 통계적 편향(구간 쏠림, 끝수 등)을 보였는지 원인을 진단하십시오.
             - 다음 회차({latest_actual_draw + 1}회차) 예측 시 보완할 전략을 서술하십시오.
 
-            (2) 기계(M5 엔진)를 위한 전술 지시서 (반드시 답변 맨 마지막에 마크다운 json 블록으로 작성)
+            (2) 기계(M5 엔진)를 위한 전술 지시서 (반드시 마크다운 json 블록으로 작성)
             - 아래 JSON 키값을 절대 변경하지 말고, 분석 결과에 맞춰 값만 수정하십시오.
             ```json
             {{
@@ -113,50 +115,51 @@ class TacticalReviewer:
             """
 
             pipeline = self.armory.get_model_pipeline(target_tier="중급")
+            # [NEW] 차순위 모델로 넘어가지 않고 대시보드 기준 최상위 단일 모델만 타격
+            target_model = pipeline[0] if pipeline else "models/gemini-3.8-flash"
             max_retries = 3
             human_text = ""
             tactical_json = {}
-            
-            for model_name in pipeline:
-                success = False
-                for attempt in range(max_retries):
-                    try:
-                        response = self.client.models.generate_content(model=model_name, contents=prompt)
-                        review_text = response.text
-                        
-                        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', review_text, re.DOTALL)
-                        
-                        if json_match:
-                            tactical_json = json.loads(json_match.group(1))
-                            # [수정 완료] 빈껍데기 제목(### (2) 기계용...)까지 통째로 완벽하게 도려냅니다.
-                            human_text = re.sub(r'(?i)(?:---|)\n*###\s*\(?2\)?.*?```(?:json)?\s*\{.*?\}\s*```', '', review_text, flags=re.DOTALL).strip()
-                        else:
-                            tactical_json = {
-                                "strategy_mode": "trend_following",
-                                "zone_weights": {"zone_1": 1.0, "zone_2": 1.0, "zone_3": 1.0, "zone_4": 1.0, "zone_5": 1.0},
-                                "hot_last_digits": [],
-                                "require_consecutive": False,
-                                "carryover_weight": 1.0
-                            }
-                            human_text = review_text
-                            
+            success = False
+
+            print(f"   🔄 [최상위 모델 지정]: {target_model} (서버 부하 시 3회 재시도 후 작전 정지)")
+
+            for attempt in range(max_retries):
+                try:
+                    response = self.client.models.generate_content(model=target_model, contents=prompt)
+                    review_text = response.text
+                    
+                    json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', review_text, re.DOTALL)
+                    
+                    if json_match:
+                        tactical_json = json.loads(json_match.group(1))
+                        human_text = re.sub(r'(?i)(?:---|)\n*###\s*\(?2\)?.*?```(?:json)?\s*\{.*?\}\s*```', '', review_text, flags=re.DOTALL).strip()
+                        print(f"   🎯 [처리 완료] 모델({target_model}) 피드백 및 JSON 지시서 생성 성공.")
                         success = True
-                        break 
-                    except Exception as e:
-                        error_msg = str(e)
-                        if "503" in error_msg or "UNAVAILABLE" in error_msg or "429" in error_msg:
-                            if attempt < max_retries - 1:
-                                wait_time = 5 * (attempt + 1)
-                                print(f"   ⚠️ 서버 과부하 감지. {wait_time}초 대기 후 재시도... (시도 {attempt+1}/{max_retries})")
-                                time.sleep(wait_time)
-                            else:
-                                print(f"   🚨 {max_retries}회 재시도 실패. 구글 서버 트래픽이 너무 높습니다.")
+                        break
+                    else:
+                        raise ValueError("API 응답에 필수적인 JSON 마크다운 블록이 누락되었습니다.")
+                        
+                except Exception as e:
+                    error_msg = str(e)
+                    if any(err in error_msg for err in ["503", "UNAVAILABLE", "429", "quota", "누락"]):
+                        if attempt < max_retries - 1:
+                            wait_time = 5 * (attempt + 1)
+                            print(f"      ⚠️ 서버 고부하/응답 불량 감지. {wait_time}초 대기 후 재시도... (시도 {attempt+1}/{max_retries})")
+                            time.sleep(wait_time)
                         else:
-                            print(f"   🚨 알 수 없는 API 오류 ({model_name}): {error_msg}")
-                            break
-                            
-                if success:
-                    break 
+                            print(f"      🚨 {max_retries}회 재시도 실패. 최상위 모델({target_model}) 서버 부하 초과.")
+                    else:
+                        print(f"      🚨 알 수 없는 API 오류 ({target_model}): {error_msg}")
+                        break
+
+            # [NEW] 3회 재시도 후에도 실패한 경우, 차순위 전환 없이 즉시 프로세스 종료
+            if not success:
+                print("\n" + "="*65)
+                print(f"🚨 [작전 중단] 최상위 모델({target_model}) 통신 3회 연속 실패로 인해 시스템을 안전하게 정지합니다.")
+                print("   - 자동 차순위 전환을 차단하였습니다. 나중에 수동으로 다시 실행해 주십시오.")
+                print("="*65)
+                sys.exit(0)
             
             if human_text:
                 print("\n" + "="*65)

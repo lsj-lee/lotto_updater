@@ -206,8 +206,8 @@
     "Rule_Freq_41": {
         "type": "freq_recent",
         "value": 41,
-        "status": "Cold Dormant",
-        "win_rate": 0.13090909090909092
+        "status": "Warm Dormant",
+        "win_rate": 0.13363636363636364
     },
     "Rule_Freq_47": {
         "type": "freq_recent",
@@ -225,7 +225,7 @@
         "type": "gap_mod",
         "value": 15,
         "status": "Warm Dormant",
-        "win_rate": 0.16666666666666666
+        "win_rate": 0.16
     },
     "Rule_Freq_21": {
         "type": "freq_recent",
@@ -242,7 +242,7 @@
     "Rule_GapMod_12": {
         "type": "gap_mod",
         "value": 12,
-        "status": "Cold Dormant",
+        "status": "Warm Dormant",
         "win_rate": 0.14666666666666667
     },
     "Rule_GapMod_20": {
@@ -308,8 +308,8 @@
     "Rule_GapMod_31": {
         "type": "gap_mod",
         "value": 31,
-        "status": "Warm Dormant",
-        "win_rate": 0.18
+        "status": "Active",
+        "win_rate": 0.2
     },
     "Rule_GapMod_23": {
         "type": "gap_mod",
@@ -356,8 +356,8 @@
     "Rule_Freq_16": {
         "type": "freq_recent",
         "value": 16,
-        "status": "Cold Dormant",
-        "win_rate": 0.13090909090909092
+        "status": "Warm Dormant",
+        "win_rate": 0.13363636363636364
     },
     "Rule_GapMod_25": {
         "type": "gap_mod",
@@ -374,7 +374,7 @@
     "Rule_GapMod_28": {
         "type": "gap_mod",
         "value": 28,
-        "status": "Warm Dormant",
+        "status": "Active",
         "win_rate": 0.18
     },
     "Rule_GapMod_45": {
@@ -416,8 +416,8 @@
     "Rule_GapMod_22": {
         "type": "gap_mod",
         "value": 22,
-        "status": "Cold Dormant",
-        "win_rate": 0.11
+        "status": "Warm Dormant",
+        "win_rate": 0.13
     },
     "Rule_Freq_48": {
         "type": "freq_recent",
@@ -428,7 +428,7 @@
     "Rule_Freq_12": {
         "type": "freq_recent",
         "value": 12,
-        "status": "Cold Dormant",
+        "status": "Warm Dormant",
         "win_rate": 0.13363636363636364
     },
     "Rule_GapMod_36": {
@@ -476,8 +476,8 @@
     "Rule_GapMod_44": {
         "type": "gap_mod",
         "value": 44,
-        "status": "Cold Dormant",
-        "win_rate": 0.12
+        "status": "Warm Dormant",
+        "win_rate": 0.14
     },
     "Rule_GapMod_34": {
         "type": "gap_mod",
@@ -526,5 +526,11 @@
         "value": 21,
         "status": "Cold Dormant",
         "win_rate": 0.11
+    },
+    "Rule_GapMod_43": {
+        "type": "gap_mod",
+        "value": 43,
+        "status": "Cold Dormant",
+        "win_rate": 0.08
     }
 }

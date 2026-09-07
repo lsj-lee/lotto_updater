@@ -2,13 +2,14 @@
 import json
 import os
 import time
+import sys
 from PIL import Image
 from google import genai
 
 class VisionAnalyzer:
     """
     👁️ [암호 해독조] 무기고에서 렌즈(AI 모델)를 꺼내와 캡처된 표의 번호를 해독합니다.
-    - [NEW] 서버 과부하(503) 및 트래픽 초과(429) 대비 지능형 재시도(Backoff) 방어망 탑재
+    - [NEW] 최상위 모델 3회 재시도 실패 시 차순위 전환 없이 즉각 작전 중지
     """
     def __init__(self, armory):
         self.armory = armory
@@ -45,39 +46,42 @@ class VisionAnalyzer:
             client = self.armory.client
             pipeline = self.armory.get_model_pipeline(target_tier="중급")
             
+            # [NEW] 단일 최상위 모델 지정 및 실패 시 종료 로직
+            target_model = pipeline[0] if pipeline else "models/gemini-3.5-flash"
             max_retries = 3
             raw_text = ""
             success = False
             
-            for model_name in pipeline:
-                print(f"   🎯 로컬 무기고 연동 완료! 시각 지능 모델 장착 시도: {model_name}")
-                for attempt in range(max_retries):
-                    try:
-                        response = client.models.generate_content(
-                            model=model_name,
-                            contents=[img, prompt]
-                        )
-                        raw_text = response.text
-                        success = True
-                        break # 성공 시 재시도 루프 즉시 탈출
-                    except Exception as e:
-                        error_msg = str(e)
-                        if "503" in error_msg or "UNAVAILABLE" in error_msg or "429" in error_msg:
-                            if attempt < max_retries - 1:
-                                wait_time = 5 * (attempt + 1)
-                                print(f"      ⚠️ 시각 지능 서버 과부하. {wait_time}초 대기 후 재시도... (시도 {attempt+1}/{max_retries})")
-                                time.sleep(wait_time)
-                            else:
-                                print(f"      🚨 {max_retries}회 재시도 실패. 모델({model_name}) 통신 불가.")
+            print(f"   🔄 [최상위 모델 지정]: {target_model} (서버 부하 시 3회 재시도 후 작전 정지)")
+            
+            for attempt in range(max_retries):
+                try:
+                    response = client.models.generate_content(
+                        model=target_model,
+                        contents=[img, prompt]
+                    )
+                    raw_text = response.text
+                    success = True
+                    break # 성공 시 재시도 루프 즉시 탈출
+                except Exception as e:
+                    error_msg = str(e)
+                    if any(err in error_msg for err in ["503", "UNAVAILABLE", "429", "quota"]):
+                        if attempt < max_retries - 1:
+                            wait_time = 5 * (attempt + 1)
+                            print(f"      ⚠️ 시각 지능 서버 과부하. {wait_time}초 대기 후 재시도... (시도 {attempt+1}/{max_retries})")
+                            time.sleep(wait_time)
                         else:
-                            print(f"      🚨 알 수 없는 시각 지능 API 오류 ({model_name}): {error_msg}")
-                            break # 서버 지연이 아닌 치명적 에러면 즉시 다음 무기로 교체
+                            print(f"      🚨 {max_retries}회 재시도 실패. 모델({target_model}) 통신 불가.")
+                    else:
+                        print(f"      🚨 알 수 없는 시각 지능 API 오류 ({target_model}): {error_msg}")
+                        break 
                 
-                if success:
-                    break # 현재 무기로 성공했으면 다음 차순위 모델은 시도하지 않음
-                    
             if not success or not raw_text:
-                return {}, "가용한 모든 AI 모델과의 시각 지능 통신에 실패했습니다."
+                print("\n" + "="*65)
+                print(f"🚨 [작전 중단] 최상위 모델({target_model}) 시각 지능 통신 3회 연속 실패로 인해 시스템을 정지합니다.")
+                print("   - 일시적인 구글 API 트래픽 초과입니다. 잠시 후 5번(ALL)을 눌러 다시 실행하십시오.")
+                print("="*65)
+                sys.exit(0)
                 
             res_text = raw_text.replace('```json', '').replace('```', '').strip()
             print(f"      [AI 해독 결과]: {res_text}")

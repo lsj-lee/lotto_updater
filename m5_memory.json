@@ -1,6 +1,6 @@
 {
     "target_draw": 1241,
-    "update_time": "2026-09-07 16:28:46",
+    "update_time": "2026-09-07 16:48:12",
     "tactical_directives": {
         "strategy_mode": "mean_reversion",
         "zone_weights": {
@@ -17,7 +17,7 @@
             9,
             0
         ],
-        "require_consecutive": false,
-        "carryover_weight": 1.1
+        "require_consecutive": true,
+        "carryover_weight": 1.2
     }
 }

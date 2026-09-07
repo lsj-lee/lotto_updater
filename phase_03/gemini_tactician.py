@@ -2,19 +2,20 @@
 import os
 import io
 import json
+import sys
+import time
 from datetime import datetime
 from contextlib import redirect_stdout
 from dotenv import load_dotenv
 
 from google import genai 
 from phase_02.m5_ultimate import M5UltimateEngine
-from core.model_selector import SniperArmory  # [NEW] 로컬 무기고 연동
+from core.model_selector import SniperArmory  
 
 class GeminiTactician:
     """
     📊 [Phase 03] AI 데이터 분석 및 리포트 생성 모듈
-    - Phase 04의 오답노트(m5_memory.json) 지시사항을 반영
-    - 무기고(Armory) 연동을 통해 하드코딩 없이 유연한 모델 통신망 구축
+    - [NEW] 최상위 모델 통신 3회 실패 시 차순위 전환 없이 즉시 작전 중단
     """
     def __init__(self, sheets_handler):
         self.sheets = sheets_handler
@@ -25,7 +26,7 @@ class GeminiTactician:
             raise ValueError("🚨 .env 파일에 GEMINI_API_KEY가 설정되지 않았습니다!")
         
         self.client = genai.Client(api_key=api_key)
-        self.armory = SniperArmory() # 무기고 장착
+        self.armory = SniperArmory() 
         print("   ✅ Google GenAI API 및 로컬 무기고(Armory) 연동 완료.")
 
     def _load_memory_directives(self):
@@ -50,7 +51,6 @@ class GeminiTactician:
             
         m5_output = f.getvalue()
         
-        # 가로챈 M5 엔진의 연산 로그를 터미널 화면에도 실시간으로 쏴줍니다.
         print(m5_output) 
         
         combined_data = f"{m5_stats}\n\n[M5 최종 10세트 예측 조합 산출 결과]\n{m5_output}"
@@ -85,20 +85,41 @@ class GeminiTactician:
         """
 
         pipeline = self.armory.get_model_pipeline(target_tier="고급")
+        
+        # [NEW] 단일 최상위 모델 지정 및 실패 시 정지 로직
+        target_model = pipeline[0] if pipeline else "models/gemini-flash-latest"
+        max_retries = 3
+        success = False
 
-        for idx, model_name in enumerate(pipeline):
-            print(f"   🔄 [API 요청 {idx+1}/{len(pipeline)}] 모델({model_name}) 호출 중...")
+        print(f"   🔄 [최상위 모델 지정]: {target_model} (서버 부하 시 3회 재시도 후 작전 정지)")
+
+        for attempt in range(max_retries):
             try:
                 response = self.client.models.generate_content(
-                    model=model_name,
+                    model=target_model,
                     contents=prompt
                 )
-                print(f"   🎯 [처리 완료] 모델({model_name}) 분석 리포트 생성 성공.\n")
+                print(f"   🎯 [처리 완료] 모델({target_model}) 분석 리포트 생성 성공.\n")
                 return response.text 
             except Exception as e:
-                print(f"   ⚠️ [오류] {model_name} 통신 실패 (사유: {e}). 차순위 모델로 전환합니다.")
+                error_msg = str(e)
+                if any(err in error_msg for err in ["503", "UNAVAILABLE", "429", "quota"]):
+                    if attempt < max_retries - 1:
+                        wait_time = 5 * (attempt + 1)
+                        print(f"      ⚠️ 서버 고부하 감지. {wait_time}초 대기 후 재시도... (시도 {attempt+1}/{max_retries})")
+                        time.sleep(wait_time)
+                    else:
+                        print(f"      🚨 {max_retries}회 재시도 실패. 최상위 모델({target_model}) 서버 부하 초과.")
+                else:
+                    print(f"      🚨 알 수 없는 API 오류 ({target_model}): {error_msg}")
+                    break
 
-        return "🚨 [프로세스 실패] 가용한 모든 AI 모델 통신에 실패했습니다."
+        # 3회 재시도 실패 시 시스템 강제 종료
+        print("\n" + "="*65)
+        print(f"🚨 [작전 중단] 최상위 모델({target_model}) 통신 3회 연속 실패로 인해 시스템을 안전하게 정지합니다.")
+        print("   - 자동 차순위 전환을 차단하였습니다. 나중에 수동으로 다시 실행해 주십시오.")
+        print("="*65)
+        sys.exit(0)
 
     def save_to_spreadsheet(self, final_sets, hot_nums, briefing_text):
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -114,9 +135,6 @@ class GeminiTactician:
             ws_rec.clear()
             ws_rec.update('A1', [[f"제 {target_draw}회차 M5 예측 10세트 조합"]])
             
-            # ========================================================
-            # [버그 수정] numpy.int64 타입을 구글 시트가 읽을 수 있도록 순수 Python int로 강제 변환
-            # ========================================================
             clean_final_sets = [[int(num) for num in lotto_set] for lotto_set in final_sets]
             ws_rec.update('A2', clean_final_sets)
             
@@ -129,12 +147,8 @@ class GeminiTactician:
             ws_log = sh.worksheet("기록")
             hot_nums_str = ", ".join(map(str, sorted(hot_nums)))
             
-            # ========================================================
-            # [수정 완료] 기존 데이터 중복 방지 (삭제 후 덮어쓰기)
-            # ========================================================
             all_logs = ws_log.get_all_values()
             for i, row in enumerate(all_logs):
-                # 1번 인덱스(B열: 회차)가 동일한 기록을 찾으면 행 삭제
                 if len(row) > 1 and str(row[1]).strip() == str(target_draw):
                     ws_log.delete_rows(i + 1)
                     break
