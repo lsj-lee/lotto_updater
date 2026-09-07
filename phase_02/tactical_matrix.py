@@ -20,9 +20,11 @@ def _monte_carlo_worker(t1, n1, t2, n2, t3, n3, cold, nc, req_consec, max_retrie
             
         combo = sorted(selected)
         
+        # [NEW] 유연한 전술 매트릭스: 연번 필수 포함 조건을 50% 확률로만 적용 (엔트로피 상승 유도)
         if req_consec:
-            has_consecutive = any(combo[i] + 1 == combo[i+1] for i in range(len(combo)-1))
-            if not has_consecutive: continue 
+            if random.random() < 0.5:
+                has_consecutive = any(combo[i] + 1 == combo[i+1] for i in range(len(combo)-1))
+                if not has_consecutive: continue 
 
         total_sum = sum(combo)
         if total_sum < 90 or total_sum > 180: continue
@@ -63,7 +65,7 @@ class TacticalMatrix:
         
         req_consecutive = self.directives.get("require_consecutive", False)
         if req_consecutive:
-            print("      ⚠️ [품질 통제] '연번' 필수 포함 조합만 합격시킵니다.")
+            print("      ⚠️ [품질 통제] '연번' 필수 조건을 50% 확률로 유연하게 적용합니다 (엔트로피 완화).")
         print("      🛡️ [방어망 가동] CPU 멀티프로세싱 기반 몬테카를로 무작위성(Randomness) 판별망 활성화.")
             
         ranked_indices = np.argsort(final_probs)[::-1]

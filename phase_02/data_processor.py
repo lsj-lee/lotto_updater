@@ -54,7 +54,8 @@ class DataProcessor:
     def _manage_rule_bank(self):
         print("   🧬 [진화 알고리즘] 가설 생성기 가동 및 백테스팅을 시작합니다...")
         
-        for _ in range(20):
+        # [NEW] 가설 생성량 증가 (20 -> 50)를 통한 뇌 용량 확장
+        for _ in range(50):
             r_type = random.choice(['gap_mod', 'freq_recent'])
             if r_type == 'gap_mod':
                 val = random.randint(5, 100) 
@@ -76,7 +77,6 @@ class DataProcessor:
             elif status == "Cold Dormant" and random.random() < 0.05:
                 rules_to_test.append(name)
 
-        # [핵심 개조] 허상(Random)이 아닌 과거 50회차 실데이터 수학적 백테스팅 진행
         if len(self.data) > 50 and rules_to_test:
             test_df_values = self.data.tail(50).values 
             
@@ -92,20 +92,19 @@ class DataProcessor:
                     
                     if score > 0:
                         total += 1
-                        # 50회차 과거 데이터를 모두 돌며 이 번호가 실제로 출현했는지 교차 검증
                         for draw in test_df_values:
                             if num in draw:
                                 hits += 1
                 
-                # 로또 기본 적중률(약 13.3%)을 기준으로 생존 커트라인을 20%로 재조정
                 win_rate = (hits / (total * 50)) if total > 0 else 0
                 self.rule_bank[rule_name]['win_rate'] = win_rate
                 
-                if win_rate >= 0.20:
+                # [NEW] 생존 커트라인 하향 조정을 통한 규칙 다양성 확보
+                if win_rate >= 0.18:
                     self.rule_bank[rule_name]['status'] = "Active"
-                elif win_rate >= 0.15:
+                elif win_rate >= 0.13:
                     self.rule_bank[rule_name]['status'] = "Warm Dormant"
-                elif win_rate >= 0.10:
+                elif win_rate >= 0.08:
                     self.rule_bank[rule_name]['status'] = "Cold Dormant"
                 else:
                     self.rule_bank[rule_name]['status'] = "Delete"

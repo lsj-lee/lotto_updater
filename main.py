@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import sys
+import subprocess
 from core.sheets_handler import SheetsHandler
 
 # 시스템의 4가지 핵심 모듈을 로드합니다.
@@ -10,6 +11,17 @@ from phase_04.tactical_review import TacticalReviewer
 
 # [NEW] XAI 투시경 모듈을 메인 시스템에 통합
 from xai_mind_reader import run_mind_reader
+
+def sync_armory():
+    print("\n📡 [무기고 동기화] 깃허브 원격 저장소에서 최신 무기고(Armory) 명단을 수신합니다...")
+    try:
+        result = subprocess.run(["git", "pull"], capture_output=True, text=True)
+        if "Already up to date." in result.stdout or "최신 상태입니다." in result.stdout:
+            print("   ✅ 무기고가 이미 최신 상태입니다.")
+        else:
+            print("   📥 갱신 완료:\n" + result.stdout.strip())
+    except Exception as e:
+        print(f"   ⚠️ Git 동기화 실패 (시스템에 git이 설치되어 있는지 확인하십시오): {e}")
 
 def main():
     print("="*60)
@@ -23,14 +35,18 @@ def main():
     print("  4. Phase 04 : 과거 예측 결과 복기 및 피드백 생성")
     print("  5. ALL      : 전체 페이즈 자동 연속 실행")
     print("  6. XAI      : 기계 심리 분석 가동 (Alpha & Beta 뇌파 스캔)")
+    print("  7. SYNC     : 무기고 강제 동기화 (Git Pull)")
     print("  0. 시스템 종료")
     print("-" * 60)
     
-    choice = input("명령 입력 (0~6): ").strip()
+    choice = input("명령 입력 (0~7): ").strip()
     
     if choice == '0':
         print("\n시스템을 정상 종료합니다.")
         sys.exit(0)
+        
+    elif choice == '7':
+        sync_armory()
         
     elif choice == '1':
         print("\n[진행] Phase 01: 시각 지능(Vision AI) 데이터 동기화를 시작합니다...")
@@ -75,6 +91,9 @@ def main():
     elif choice == '5':
         print("\n[진행] 전체 페이즈(ALL) 자동 연속 실행을 개시합니다.")
         
+        # [NEW] 작전 개시 전 무기고 강제 동기화 수행
+        sync_armory()
+        
         sheets = SheetsHandler()
         
         # Phase 01 (시각 지능 동기화)
@@ -94,9 +113,7 @@ def main():
         reviewer = TacticalReviewer(sheets)
         reviewer.execute_review()
         
-        # ====================================================
         # [NEW] 작전 최종 단계: XAI 스캐너 자동 개입
-        # ====================================================
         print("\n>> [XAI 개입] 모든 프로세스 완료. 기계 심리 분석 스캐너를 가동합니다...")
         run_mind_reader()
         
