@@ -54,7 +54,6 @@ class DataProcessor:
     def _manage_rule_bank(self):
         print("   🧬 [진화 알고리즘] 가설 생성기 가동 및 백테스팅을 시작합니다...")
         
-        # [NEW] 가설 생성량 증가 (20 -> 50)를 통한 뇌 용량 확장
         for _ in range(50):
             r_type = random.choice(['gap_mod', 'freq_recent'])
             if r_type == 'gap_mod':
@@ -99,7 +98,6 @@ class DataProcessor:
                 win_rate = (hits / (total * 50)) if total > 0 else 0
                 self.rule_bank[rule_name]['win_rate'] = win_rate
                 
-                # [NEW] 생존 커트라인 하향 조정을 통한 규칙 다양성 확보
                 if win_rate >= 0.18:
                     self.rule_bank[rule_name]['status'] = "Active"
                 elif win_rate >= 0.13:
@@ -121,6 +119,8 @@ class DataProcessor:
         features = []
         total_len = len(history_df)
         last_10_vals = history_df.tail(10).values.flatten()
+        last_5_vals = history_df.tail(5).values.flatten()
+        last_15_vals = history_df.tail(15).values.flatten()
         
         zones = {
             1: range(1, 11), 2: range(11, 21), 3: range(21, 31),
@@ -141,7 +141,12 @@ class DataProcessor:
             zone_nums = list(zones[my_zone])
             zone_f10 = np.sum(np.isin(last_10_vals, zone_nums))
             
-            base_feat = [total_f, f10, f30, gap, zone_f10]
+            # [NEW] 상승/하락 모멘텀 지표 연산 (MACD 원리 응용)
+            f5 = np.sum(last_5_vals == num)
+            f15 = np.sum(last_15_vals == num)
+            momentum = (f5 / 5.0) - (f15 / 15.0) if total_len >= 15 else 0.0
+            
+            base_feat = [total_f, f10, f30, gap, zone_f10, momentum]
             
             for r_name, r_info in active_rules.items():
                 if r_info['type'] == 'gap_mod':

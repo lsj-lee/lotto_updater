@@ -1,23 +1,23 @@
 {
     "target_draw": 1241,
-    "update_time": "2026-09-07 16:48:12",
+    "update_time": "2026-09-12 11:37:57",
     "tactical_directives": {
         "strategy_mode": "mean_reversion",
         "zone_weights": {
-            "zone_1": 0.4,
-            "zone_2": 1.4,
+            "zone_1": 0.5,
+            "zone_2": 1.3,
             "zone_3": 0.9,
-            "zone_4": 1.3,
+            "zone_4": 1.4,
             "zone_5": 1.2
         },
         "hot_last_digits": [
             1,
             3,
-            4,
             9,
-            0
+            0,
+            4
         ],
-        "require_consecutive": true,
-        "carryover_weight": 1.2
+        "require_consecutive": false,
+        "carryover_weight": 1.1
     }
 }

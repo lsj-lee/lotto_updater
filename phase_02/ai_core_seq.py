@@ -8,8 +8,7 @@ warnings.filterwarnings('ignore')
 class AICoreSeq:
     """
     🧠 [Phase 02] 제2 코어: 조건부 시퀀스 생성 AI (Beta Engine)
-    - 과거 당첨 데이터를 '순서와 문맥'으로 학습하는 Autoregressive 신경망
-    - [NEW] Soft-Weighting을 적용하여 오답노트의 기계적 편향을 완화하고 추론력 회복
+    - [NEW] 제로 패딩 착시를 제거하기 위한 45차원 원-핫 인코딩 텐서 매트릭스 적용
     """
     def __init__(self, data_processor):
         self.dp = data_processor
@@ -29,12 +28,13 @@ class AICoreSeq:
         
         for draw in recent_data:
             draw = sorted(draw)
-            context = [0, 0, 0, 0, 0]
+            # [NEW] 45개의 0으로 이루어진 원-핫 인코딩 텐서망 생성
+            context = np.zeros(45, dtype=int)
             for i in range(6):
                 X_train.append(context.copy())
                 y_train.append(draw[i])
                 if i < 5:
-                    context[i] = draw[i]
+                    context[draw[i] - 1] = 1 # 등장한 번호의 인덱스 스위치만 1로 활성화 (ON)
                     
         self.model.fit(X_train, y_train)
         self.is_trained = True
@@ -54,13 +54,13 @@ class AICoreSeq:
         last_draw_nums = current_data.iloc[-1].values if len(current_data) > 0 else []
 
         for _ in range(num_sets):
-            context = [0, 0, 0, 0, 0]
+            # [NEW] 초기 문맥은 모든 스위치가 0(OFF)인 45차원 텐서
+            context = np.zeros(45, dtype=int)
             ticket = []
             
             for i in range(6):
                 raw_probs = self.model.predict_proba([context])[0]
                 
-                # 2. 조건부 개입 (Soft-Weighting) - 오답노트 가중치 영향을 50% 축소하여 적용
                 for num_idx in range(45):
                     num = num_idx + 1
                     
@@ -68,7 +68,6 @@ class AICoreSeq:
                         raw_probs[num_idx] = 0.0
                         continue
                         
-                    # 구간 가중치 (Soft-Weighting)
                     z_idx = (num - 1) // 10 + 1
                     z_idx = 5 if z_idx > 5 else z_idx
                     z_key = f"zone_{z_idx}"
@@ -76,11 +75,9 @@ class AICoreSeq:
                     soft_w = 1.0 + (original_w - 1.0) * 0.5
                     raw_probs[num_idx] *= soft_w
                     
-                    # 끝수 저격 주입 (보너스 15% -> 7.5%로 축소)
                     if (num % 10) in hot_digits:
                         raw_probs[num_idx] *= 1.075
                         
-                    # 이월수 가중치 (Soft-Weighting)
                     if num in last_draw_nums:
                         soft_cw = 1.0 + (carry_w - 1.0) * 0.5
                         raw_probs[num_idx] *= soft_cw
@@ -99,7 +96,7 @@ class AICoreSeq:
                 
                 ticket.append(next_num)
                 if i < 5:
-                    context[i] = next_num 
+                    context[next_num - 1] = 1 # 발권된 번호 텐서 활성화 (ON)
                     
             beta_sets.append(sorted(ticket))
             

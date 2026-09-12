@@ -27,13 +27,10 @@ def force_scan_alpha_memory(alpha_obj):
     for attr_name, attr_value in vars(alpha_obj).items():
         if isinstance(attr_value, list) and len(attr_value) > 0:
             for item in attr_value:
-                # [수정 완료] 딕셔너리(Dictionary) 형태로 저장된 실제 ai_core.py 구조 완벽 탐지
                 if isinstance(item, dict) and 'model' in item:
                     sub_item = item['model']
                     if hasattr(sub_item, 'fit') and hasattr(sub_item, 'predict'):
                         return sub_item, [f"지표_{i+1}" for i in range(100)]
-                
-                # 튜플(Tuple) 형태로 저장된 경우 (기존 로직 유지)
                 elif isinstance(item, tuple):
                     for sub_item in item:
                         if hasattr(sub_item, 'fit') and hasattr(sub_item, 'predict'):
@@ -64,13 +61,12 @@ def run_mind_reader():
         
         print("\n🔍 [Alpha 뇌파 스캔]: 예측을 위해 가장 중요하게 평가한 통계 지표 Top 5")
         
-        # 메모리 강제 전수 조사 실행
         target_model, target_features = force_scan_alpha_memory(alpha)
                 
         if target_model:
             importances = extract_importance(target_model)
             if importances is not None:
-                importances = importances / np.sum(importances) # 100% 정규화
+                importances = importances / np.sum(importances) 
                 min_len = min(len(target_features), len(importances))
                 
                 importance_df = pd.DataFrame({
@@ -81,9 +77,9 @@ def run_mind_reader():
                 for idx, row in enumerate(importance_df.head(5).itertuples()):
                     print(f"  {idx+1}위: {row.Feature:<20} (영향력: {row.Importance*100:.2f}%)")
             else:
-                print("  ⚠️ Alpha 에이스 모델이 속을 알 수 없는 블랙박스 알고리즘(KNN 등)입니다.")
+                print("  ⚠️ Alpha 에이스 모델이 속을 알 수 없는 블랙박스 알고리즘입니다.")
         else:
-            print("  ⚠️ 메모리 전수 조사 실패: Alpha 객체 안에 훈련된 모델이 존재하지 않습니다.")
+            print("  ⚠️ 메모리 전수 조사 실패: 모델이 존재하지 않습니다.")
 
         # ==========================================
         # 🧬 제2 코어 (Beta) 생각 읽기
@@ -94,21 +90,33 @@ def run_mind_reader():
         beta = AICoreSeq(dp)
         beta.run_sequence_training(data)
         
-        print("\n🔍 [Beta 뇌파 스캔]: 실시간 문맥(Context)에 따른 확률 저울질")
+        print("\n🔍 [Beta 뇌파 스캔]: 실시간 텐서 문맥(Context)에 따른 확률 저울질")
         
-        def print_beta_thought(context_state, situation_name):
+        # [NEW] 45차원 원-핫 인코딩 텐서 변환 함수
+        def get_tensor(drawn_nums):
+            tensor = np.zeros(45, dtype=int)
+            for n in drawn_nums:
+                if 1 <= n <= 45:
+                    tensor[n-1] = 1
+            return tensor
+
+        def print_beta_thought(drawn_nums, situation_name):
+            context_state = get_tensor(drawn_nums)
             probs = beta.model.predict_proba([context_state])[0]
             top3_idx = np.argsort(probs)[-3:][::-1]
             
-            print(f"\n  ▶ [상황: {situation_name}] 현재 문맥 {context_state}")
+            # 뽑힌 번호가 없으면 '빈 배열'로 출력되게 정리
+            drawn_str = str(drawn_nums) if drawn_nums else "[없음]"
+            print(f"\n  ▶ [상황: {situation_name}] 현재 뽑힌 번호 {drawn_str}")
             print("     기계의 뇌 속 확률 저울질 결과:")
             for i, idx in enumerate(top3_idx):
                 lotto_num = beta.model.classes_[idx]
                 print(f"      - {i+1}순위 채택 후보: [{lotto_num:02d}번] (수학적 확률: {probs[idx]*100:.2f}%)")
 
-        print_beta_thought([0, 0, 0, 0, 0], "맨 처음 첫 번째 공을 뽑을 때")
-        print_beta_thought([7, 0, 0, 0, 0], "방금 7번을 뽑고, 두 번째 공을 고를 때")
-        print_beta_thought([7, 8, 9, 0, 0], "7, 8, 9번 (3연번)이 뽑혀버린 최악의 상태일 때")
+        # 45차원 텐서망 규격에 맞춰 테스트 인자 수정
+        print_beta_thought([], "맨 처음 첫 번째 공을 뽑을 때")
+        print_beta_thought([7], "방금 7번을 뽑고, 두 번째 공을 고를 때")
+        print_beta_thought([7, 8, 9], "7, 8, 9번 (3연번)이 뽑혀버린 최악의 상태일 때")
 
         print("\n" + "="*60)
         print(" ✅ XAI 투시 스캔 및 뇌파 해독 완료.")

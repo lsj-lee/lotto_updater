@@ -15,7 +15,7 @@ from core.model_selector import SniperArmory
 class GeminiTactician:
     """
     📊 [Phase 03] AI 데이터 분석 및 리포트 생성 모듈
-    - [NEW] 최상위 모델 통신 3회 실패 시 차순위 전환 없이 즉시 작전 중단
+    - [NEW] 최상위 모델 통신 3회 실패 시 명확한 에러 사유를 출력하고 작전 중지
     """
     def __init__(self, sheets_handler):
         self.sheets = sheets_handler
@@ -85,11 +85,10 @@ class GeminiTactician:
         """
 
         pipeline = self.armory.get_model_pipeline(target_tier="고급")
-        
-        # [NEW] 단일 최상위 모델 지정 및 실패 시 정지 로직
         target_model = pipeline[0] if pipeline else "models/gemini-flash-latest"
         max_retries = 3
         success = False
+        last_error_msg = "알 수 없는 통신 오류" # [NEW] 마지막 에러 메시지 포획용 변수
 
         print(f"   🔄 [최상위 모델 지정]: {target_model} (서버 부하 시 3회 재시도 후 작전 정지)")
 
@@ -102,8 +101,8 @@ class GeminiTactician:
                 print(f"   🎯 [처리 완료] 모델({target_model}) 분석 리포트 생성 성공.\n")
                 return response.text 
             except Exception as e:
-                error_msg = str(e)
-                if any(err in error_msg for err in ["503", "UNAVAILABLE", "429", "quota"]):
+                last_error_msg = str(e) # [NEW] 에러 발생 시 사유 기록
+                if any(err in last_error_msg for err in ["503", "UNAVAILABLE", "429", "quota"]):
                     if attempt < max_retries - 1:
                         wait_time = 5 * (attempt + 1)
                         print(f"      ⚠️ 서버 고부하 감지. {wait_time}초 대기 후 재시도... (시도 {attempt+1}/{max_retries})")
@@ -111,13 +110,17 @@ class GeminiTactician:
                     else:
                         print(f"      🚨 {max_retries}회 재시도 실패. 최상위 모델({target_model}) 서버 부하 초과.")
                 else:
-                    print(f"      🚨 알 수 없는 API 오류 ({target_model}): {error_msg}")
+                    print(f"      🚨 알 수 없는 API 오류 ({target_model}): {last_error_msg}")
                     break
 
-        # 3회 재시도 실패 시 시스템 강제 종료
+        # [NEW] 3회 재시도 실패 시 에러 사유와 함께 시스템 강제 종료
         print("\n" + "="*65)
         print(f"🚨 [작전 중단] 최상위 모델({target_model}) 통신 3회 연속 실패로 인해 시스템을 안전하게 정지합니다.")
-        print("   - 자동 차순위 전환을 차단하였습니다. 나중에 수동으로 다시 실행해 주십시오.")
+        print(f"   ▶ 차단 사유 (Error): {last_error_msg}")
+        print("   ▶ 조치 권고사항:")
+        print("      - 503 UNAVAILABLE : 구글 서버의 일시적인 전 세계적 트래픽 폭주입니다. 10~30분 뒤 재시도 하십시오.")
+        print("      - 429 RESOURCE_EXHAUSTED : 사령관님의 API 무료 할당량(분당 요청 횟수 등)을 초과했습니다. 잠시 후 재시도 하십시오.")
+        print("      - 시스템을 수동으로 재가동하려면 메뉴 '5번(ALL)'을 다시 입력하십시오.")
         print("="*65)
         sys.exit(0)
 

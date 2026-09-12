@@ -10,8 +10,7 @@ warnings.filterwarnings('ignore')
 class AICore:
     """
     🧠 [Phase 02] 전략 훈련소 (Self-Evolving & Command Directed)
-    - Active 규칙을 통한 모델 학습
-    - m5_memory.json(오답노트)에 기반한 물리적 확률 튜닝(Zone, Last Digits, Carryover)
+    - [NEW] 클래스 불균형(Class Imbalance) 해결을 위한 샘플 가중치(6.5배) 훈련 도입
     """
     def __init__(self, data_processor):
         self.dp = data_processor
@@ -33,9 +32,12 @@ class AICore:
             X_train, y_train = self._prepare_xy(past_data)
             
             if len(X_train) == 0: continue
+            
+            # [NEW] 실제 당첨(1) 번호를 맞출 경우 낙첨(0)보다 6.5배 높은 가중치 보상 부여
+            sample_weights = np.where(y_train == 1, 6.5, 1.0)
                 
             master_model.n_estimators += 10
-            master_model.fit(X_train, y_train)
+            master_model.fit(X_train, y_train, sample_weight=sample_weights)
             current_era_model = copy.deepcopy(master_model)
             
             survival_score = self._evaluate_model(current_era_model, data, start_idx=cp, test_length=50)
@@ -86,9 +88,6 @@ class AICore:
             
         base_probs = combined_probs / total_weight
 
-        # ========================================================
-        # [NEW] Phase 04 오답노트 (m5_memory.json) 물리적 가중치 조작
-        # ========================================================
         directives = self.dp.memory_data.get("tactical_directives", {})
         if directives:
             zone_w = directives.get("zone_weights", {})
@@ -100,17 +99,14 @@ class AICore:
             for i in range(45):
                 num = i + 1
                 
-                # 1. 구간(Zone) 가중치 곱연산
                 zone_idx = (num - 1) // 10 + 1
                 if zone_idx > 5: zone_idx = 5
                 z_key = f"zone_{zone_idx}"
                 base_probs[i] *= zone_w.get(z_key, 1.0)
                 
-                # 2. 끝수 저격 가중치 (일치하면 15% 보너스)
                 if (num % 10) in hot_digits:
                     base_probs[i] *= 1.15
                     
-                # 3. 이월수 가중치 
                 if num in last_draw_nums:
                     base_probs[i] *= carry_w
 
