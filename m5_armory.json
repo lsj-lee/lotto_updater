@@ -1,9 +1,8 @@
 {
-    "update_time": "2026-11-07 15:26:50",
+    "update_time": "2026-11-14 15:37:23",
     "weapons": {
         "고급": [],
         "중급": [
-            "models/gemini-3.6-flash",
             "models/gemini-3.5-flash",
             "models/gemini-2.5-flash"
         ],
